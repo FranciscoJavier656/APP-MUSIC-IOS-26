@@ -5,8 +5,8 @@ interface SettingsTabProps {
   setIsDarkMode: (val: boolean) => void;
 }
 
-export default function HomeTab() {
-  const handleScroll = useTabBarScroll(); isDarkMode, setIsDarkMode }: SettingsTabProps) {
+export default function SettingsTab({ isDarkMode, setIsDarkMode }: SettingsTabProps) {
+  const handleScroll = useTabBarScroll();
   return (
     <div className="flex flex-col h-full w-full bg-[#F2F2F7] dark:bg-[#000000]">
       {/* iOS style sticky header with blur */}

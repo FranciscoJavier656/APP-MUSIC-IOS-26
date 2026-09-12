@@ -13,7 +13,7 @@ import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
 
 type LibraryMode = 'streaming' | 'descargados';
 
-export default function HomeTab() {
+export default function LibraryTab() {
   const handleScroll = useTabBarScroll();
   const [libraryMode, setLibraryMode] = useState<LibraryMode>('streaming');
   const [activeTab, setActiveTab] = useState<'albums' | 'artists' | 'tracks' | 'playlists'>('tracks');

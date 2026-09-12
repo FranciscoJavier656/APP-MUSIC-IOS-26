@@ -11,7 +11,7 @@ import { usePlayer } from './PlayerContext';
 
 import { useDownloads } from '../lib/DownloadContext';
 
-export default function HomeTab() {
+export default function DownloadsTab() {
   const handleScroll = useTabBarScroll();
   const [offlineTracks, setOfflineTracks] = useState<any[]>([]);
   const [filter, setFilter] = useState<'all' | 'downloading' | 'completed' | 'error'>('all');

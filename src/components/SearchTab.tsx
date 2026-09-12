@@ -33,7 +33,7 @@ const BENTO_GENRES = [
   { id: '8', name: 'Clásica', color: 'bg-teal-500/20 text-teal-700 dark:text-teal-500 border-teal-500/30' },
 ];
 
-export default function HomeTab() {
+export default function SearchTab() {
   const handleScroll = useTabBarScroll();
   const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
   const itemVariants = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 400, damping: 30 } } };
