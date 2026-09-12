@@ -3,44 +3,37 @@ import Capacitor
 import SwiftUI
 import WebKit
 
-// MARK: - TabView Transparency Injector
-// This view walks up the UI hierarchy and forces all TabView containers to be transparent
-struct TransparentTabBackground: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        DispatchQueue.main.async {
-            var superview = view.superview
-            while let current = superview {
-                let className = String(describing: type(of: current))
-                // Force clear background on all structural container views created by TabView
-                if className.contains("UITabBarController") || 
-                   className.contains("UIHostingView") || 
-                   className.contains("Tab") || 
-                   className.contains("Hosting") || 
-                   className.contains("View") {
-                    
-                    current.backgroundColor = .clear
-                }
-                superview = current.superview
-            }
-        }
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {}
-}
-
-// Wraps the Capacitor WKWebView so it can be used inside SwiftUI
-struct CapacitorBridgeView: UIViewControllerRepresentable {
+// MARK: - Native Bridge Reparenter
+// This solves all transparency and touch issues by taking the single Capacitor WebView
+// and natively moving it to whatever tab is currently active.
+// It prevents the WebView from being reloaded, keeps state, and uses 100% standard Apple TabView behavior.
+struct SharedBridgeViewController: UIViewControllerRepresentable {
     let bridgeVC: CAPBridgeViewController
     
-    func makeUIViewController(context: Context) -> CAPBridgeViewController {
-        return bridgeVC
+    func makeUIViewController(context: Context) -> UIViewController {
+        let vc = UIViewController()
+        vc.view.backgroundColor = .clear
+        return vc
     }
     
-    func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        if bridgeVC.parent != uiViewController {
+            // Detach from previous tab
+            bridgeVC.willMove(toParent: nil)
+            bridgeVC.view.removeFromSuperview()
+            bridgeVC.removeFromParent()
+            
+            // Attach to the current active tab
+            uiViewController.addChild(bridgeVC)
+            bridgeVC.view.frame = uiViewController.view.bounds
+            bridgeVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            uiViewController.view.addSubview(bridgeVC.view)
+            bridgeVC.didMove(toParent: uiViewController)
+        }
+    }
 }
+
+// MARK: - Hybrid Root View & Components
 
 @available(iOS 18.0, *)
 struct HybridRootView: View {
@@ -50,56 +43,37 @@ struct HybridRootView: View {
     @State private var showAlbumZoom = false
     @Namespace private var zoomNamespace
     
-    init(bridgeVC: CAPBridgeViewController) {
-        self.bridgeVC = bridgeVC
-        // Make the native TabBar bottom bar background transparent
-        let appearance = UITabBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundColor = .clear
-        appearance.backgroundEffect = nil
-        appearance.shadowColor = .clear
-        
-        UITabBar.appearance().standardAppearance = appearance
-        UITabBar.appearance().scrollEdgeAppearance = appearance
-    }
-    
     var body: some View {
-        ZStack {
-            // 1. The WebView is ALWAYS active in the background, untouched.
-            CapacitorBridgeView(bridgeVC: bridgeVC)
+        // The REAL Apple Native TabView
+        TabView(selection: $selectedTab) {
+            SharedBridgeViewController(bridgeVC: bridgeVC)
                 .ignoresSafeArea()
-            
-            // 2. The REAL Apple Native TabView
-            TabView(selection: $selectedTab) {
-                TransparentTabBackground()
-                    .allowsHitTesting(false) // Allows touches to pass through the empty center area down to the WebView
-                    .tag("home")
-                    .tabItem { Label("Inicio", systemImage: "house") }
-                    
-                TransparentTabBackground()
-                    .allowsHitTesting(false)
-                    .tag("search")
-                    .tabItem { Label("Buscar", systemImage: "magnifyingglass") }
-                    
-                TransparentTabBackground()
-                    .allowsHitTesting(false)
-                    .tag("library")
-                    .tabItem { Label("Librería", systemImage: "square.stack.fill") }
-                    
-                TransparentTabBackground()
-                    .allowsHitTesting(false)
-                    .tag("downloads")
-                    .tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
-                    
-                TransparentTabBackground()
-                    .allowsHitTesting(false)
-                    .tag("settings")
-                    .tabItem { Label("Ajustes", systemImage: "gearshape") }
-            }
-            .onChange(of: selectedTab) { newValue in
-                // Sync native selection to React without jumping back!
-                bridgeVC.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
-            }
+                .tag("home")
+                .tabItem { Label("Inicio", systemImage: "house") }
+                
+            SharedBridgeViewController(bridgeVC: bridgeVC)
+                .ignoresSafeArea()
+                .tag("search")
+                .tabItem { Label("Buscar", systemImage: "magnifyingglass") }
+                
+            SharedBridgeViewController(bridgeVC: bridgeVC)
+                .ignoresSafeArea()
+                .tag("library")
+                .tabItem { Label("Librería", systemImage: "square.stack.fill") }
+                
+            SharedBridgeViewController(bridgeVC: bridgeVC)
+                .ignoresSafeArea()
+                .tag("downloads")
+                .tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
+                
+            SharedBridgeViewController(bridgeVC: bridgeVC)
+                .ignoresSafeArea()
+                .tag("settings")
+                .tabItem { Label("Ajustes", systemImage: "gearshape") }
+        }
+        .onChange(of: selectedTab) { newValue in
+            // Sync native selection to React
+            bridgeVC.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
         }
         .sheet(isPresented: $showAlbumZoom) {
             NativeAlbumDetailView()
@@ -177,9 +151,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             // HYBRID ARCHITECTURE: Inject Native SwiftUI TabBar and WWDC APIs wrapping the WebView
             let hybridView = HybridRootView(bridgeVC: bridgeVC)
             let hostingVC = UIHostingController(rootView: hybridView)
-            
-            // To ensure the TabView's background doesn't block the webview, we set the hosting view to transparent
-            hostingVC.view.backgroundColor = .clear
             
             window?.rootViewController = hostingVC
         } else {
