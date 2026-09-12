@@ -29,7 +29,22 @@ export default function LibraryTab() {
   const [offset, setOffset] = useState(0);
   const { targetRef, isIntersecting } = useIntersectionObserver({ threshold: 0.1 });
   
-  const { playTrack, setContextMenuTrack } = usePlayer();
+  const { playTrack, setContextMenuTrack, setDownloadItem } = usePlayer();
+
+  const handleDownloadAll = () => {
+    const tracksToDownload = items.filter((i: any) => i.type === 'track').map((i: any) => i.original || i);
+    if (tracksToDownload.length === 0) return;
+    
+    const virtualPlaylist = {
+      id: `bulk_download_${Date.now()}`,
+      title: `Favoritos (${tracksToDownload.length} pistas)`,
+      tracks: {
+        items: tracksToDownload
+      }
+    };
+    
+    setDownloadItem({ item: virtualPlaylist, type: 'playlist' });
+  };
 
   const loadData = async (currentOffset = 0) => {
     setIsLoading(true);
@@ -275,6 +290,22 @@ export default function LibraryTab() {
             );
           })}
         </div>
+        
+        {libraryMode === 'streaming' && activeTab === 'tracks' && items.length > 0 && !selectedAlbum && !selectedArtist && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-4"
+          >
+            <button
+              onClick={handleDownloadAll}
+              className="w-full flex items-center justify-center gap-2 bg-white text-black py-3 rounded-xl font-bold text-[15px] hover:scale-[0.98] transition-transform"
+            >
+              <DownloadCloud size={18} />
+              Descargar Todo
+            </button>
+          </motion.div>
+        )}
       </div>
 
       <motion.div 
