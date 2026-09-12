@@ -381,26 +381,3 @@ public struct GlassEffectContainer<Content: View>: View {
         content
     }
 }
-
-public enum GlassEffectStyle {
-    case regular
-    case tint(Color)
-    
-    public func interactive() -> GlassEffectStyle {
-        return self
-    }
-    
-}
-
-public extension View {
-    @ViewBuilder
-    func glassEffect(_ style: GlassEffectStyle? = nil) -> some View {
-        self.background(.ultraThinMaterial, in: Capsule())
-            .shadow(color: .black.opacity(0.4), radius: 15, y: 10)
-    }
-    
-    func glassEffectID(_ id: String, in namespace: Namespace.ID) -> some View {
-        // Matches geometry to create the liquid snapping effect
-        self.matchedGeometryEffect(id: id, in: namespace)
-    }
-}

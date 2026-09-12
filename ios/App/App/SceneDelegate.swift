@@ -15,7 +15,7 @@ struct CapacitorBridgeView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {}
 }
 
-@available(iOS 18.0, *)
+@available(iOS 26.0, *)
 struct HybridRootView: View {
     let bridgeVC: CAPBridgeViewController
     
@@ -45,7 +45,7 @@ struct HybridRootView: View {
             Color.clear.tag("downloads").tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
             Color.clear.tag("settings").tabItem { Label("Ajustes", systemImage: "gearshape") }
         }
-        .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 18 API
+        .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 26 API
         .tabViewBottomAccessory {
             NativeMiniPlayerAccessory()
         }
@@ -63,7 +63,7 @@ struct HybridRootView: View {
 
 // MARK: - Native Components requested from WWDC
 
-@available(iOS 18.0, *)
+@available(iOS 26.0, *)
 struct NativeMiniPlayerAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) var placement
     
@@ -80,7 +80,7 @@ struct NativeMiniPlayerAccessory: View {
     }
 }
 
-@available(iOS 18.0, *)
+@available(iOS 26.0, *)
 struct NativeAlbumDetailView: View {
     @State private var presentDialog = false
     
@@ -91,11 +91,10 @@ struct NativeAlbumDetailView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(height: 300)
-                    // .backgroundExtensionEffect() // Note: Some specific modifiers require specific frameworks (like MapKit) or Beta Xcode, commenting out to prevent build failures.
                 
                 Label("Desert", systemImage: "sun.max.fill")
                     .padding()
-                    .glassEffect(.regular.interactive())
+                    .glassEffect()
             }
             .navigationTitle("Álbum")
             .toolbar {
@@ -114,23 +113,7 @@ struct NativeAlbumDetailView: View {
                     }
                 }
             }
-            // .scrollEdgeEffectStyle(.hard, for: .top) // See note above
         }
-    }
-}
-
-// MARK: - Polyfills / Helpers for GlassEffect
-
-public enum GlassEffectStyle {
-    case regular
-    case tint(Color)
-    public func interactive() -> GlassEffectStyle { return self }
-}
-
-public extension View {
-    @ViewBuilder
-    func glassEffect(_ style: GlassEffectStyle? = nil) -> some View {
-        self.background(.ultraThinMaterial, in: Capsule())
     }
 }
 
@@ -156,7 +139,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         let bridgeVC = MyBridgeViewController()
         
-        if #available(iOS 18.0, *) {
+        if #available(iOS 26.0, *) {
             // HYBRID ARCHITECTURE: Inject Native SwiftUI TabBar and WWDC APIs wrapping the WebView
             let hybridView = HybridRootView(bridgeVC: bridgeVC)
             let hostingVC = UIHostingController(rootView: hybridView)
