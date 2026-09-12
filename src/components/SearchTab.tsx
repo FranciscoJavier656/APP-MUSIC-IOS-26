@@ -8,6 +8,7 @@ import PlaylistView from './PlaylistView';
 import { AnimatePresence, motion } from 'motion/react';
 import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
 import { getImageSrc } from '../lib/image';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 
 
 interface QobuzItem {
@@ -32,7 +33,8 @@ const BENTO_GENRES = [
   { id: '8', name: 'Clásica', color: 'bg-teal-500/20 text-teal-700 dark:text-teal-500 border-teal-500/30' },
 ];
 
-export default function SearchTab() {
+export default function HomeTab() {
+  const handleScroll = useTabBarScroll();
   const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
   const itemVariants = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 400, damping: 30 } } };
 
@@ -189,7 +191,7 @@ export default function SearchTab() {
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col h-full pb-[180px] overflow-y-auto">
+      <div className="flex flex-col h-full pb-[180px] overflow-y-auto" onScroll={handleScroll}>
         {/* Header and Search Bar */}
         <header className="sticky top-0 z-40 bg-[#F2F2F7]/90 dark:bg-[#000000]/90 backdrop-blur-2xl px-5 pt-14 pb-4 border-b border-black/5 dark:border-white/5">
           {!isFocused && !query && (

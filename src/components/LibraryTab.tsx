@@ -3,6 +3,7 @@ import OfflineDetailView from './OfflineDetailView';
 import React, { useState, useEffect, useMemo } from 'react';
 import { OfflineImage } from './OfflineImage';
 import { getImageSrc } from '../lib/image';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 import { Capacitor } from '@capacitor/core';
 import { motion } from 'motion/react';
 import { Loader2, Music, Play, Disc, Trash2, Heart, ListMusic, User, Search, Filter, ChevronLeft, DownloadCloud, MoreVertical } from 'lucide-react';
@@ -12,7 +13,8 @@ import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
 
 type LibraryMode = 'streaming' | 'descargados';
 
-export default function LibraryTab() {
+export default function HomeTab() {
+  const handleScroll = useTabBarScroll();
   const [libraryMode, setLibraryMode] = useState<LibraryMode>('streaming');
   const [activeTab, setActiveTab] = useState<'albums' | 'artists' | 'tracks' | 'playlists'>('tracks');
   
@@ -233,7 +235,7 @@ export default function LibraryTab() {
   };
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-black pb-[180px]">
+    <div className="h-full w-full overflow-y-auto bg-black pb-[180px]" onScroll={handleScroll}>
       <div className="pt-12 px-6 pb-2">
         <div className="flex justify-between items-center">
           <h1 className="text-[34px] font-bold tracking-tight text-white">Biblioteca</h1>

@@ -19,8 +19,10 @@ import AlbumView from './AlbumView';
 import PlaylistView from './PlaylistView';
 import ParaTiSection from './ParaTiSection';
 import { getImageSrc } from '../lib/image';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 
 export default function HomeTab() {
+  const handleScroll = useTabBarScroll();
   const [activeItem, setActiveItem] = useState<{id: string, type: string} | null>(null);
   const [loading, setLoading] = useState(true);
   const [editorPicks, setEditorPicks] = useState<QobuzItem[]>([]);
@@ -127,7 +129,7 @@ export default function HomeTab() {
           </motion.div>
         )}
       </AnimatePresence>
-    <div className="h-full w-full bg-[#F2F2F7] dark:bg-[#000000] text-black dark:text-white transition-colors duration-300 overflow-y-auto pb-[180px]">
+    <div className="h-full w-full bg-[#F2F2F7] dark:bg-[#000000] text-black dark:text-white transition-colors duration-300 overflow-y-auto pb-[180px]" onScroll={handleScroll}>
       {/* Header Tabs */}
       <div className="pt-14 pb-4 px-5 sticky top-0 bg-[#F2F2F7]/90 dark:bg-[#000000]/90 backdrop-blur-2xl z-10 border-b border-black/5 dark:border-white/5">
         <div className="flex items-center justify-between w-full">

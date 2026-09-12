@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { OfflineImage } from './OfflineImage';
 import { getImageSrc } from '../lib/image';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { motion } from 'motion/react';
@@ -10,7 +11,8 @@ import { usePlayer } from './PlayerContext';
 
 import { useDownloads } from '../lib/DownloadContext';
 
-export default function DownloadsTab() {
+export default function HomeTab() {
+  const handleScroll = useTabBarScroll();
   const [offlineTracks, setOfflineTracks] = useState<any[]>([]);
   const [filter, setFilter] = useState<'all' | 'downloading' | 'completed' | 'error'>('all');
   const [isLoading, setIsLoading] = useState(true);
@@ -210,7 +212,7 @@ export default function DownloadsTab() {
   );
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#F2F2F7] dark:bg-[#000000] pb-[180px]">
+    <div className="h-full w-full overflow-y-auto bg-[#F2F2F7] dark:bg-[#000000] pb-[180px]" onScroll={handleScroll}>
       <div className="pt-12 px-6 pb-2">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-black tracking-tighter text-black dark:text-white">Descargas</h1>
