@@ -9,8 +9,6 @@ export function useTabBarScroll() {
   const isHidden = useRef(false);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (!isNative || !LiquidTabBarNative) return;
-
     const currentY = e.currentTarget.scrollTop;
     const deltaY = currentY - lastScrollY.current;
     
@@ -19,7 +17,11 @@ export function useTabBarScroll() {
       lastScrollY.current = currentY;
       if (isHidden.current) {
         isHidden.current = false;
-        LiquidTabBarNative.setHidden({ isHidden: false }).catch(() => {});
+        if (isNative && LiquidTabBarNative) {
+            LiquidTabBarNative.setHidden({ isHidden: false }).catch(() => {});
+        } else {
+            window.dispatchEvent(new CustomEvent('tabbar:show'));
+        }
       }
       return;
     }
@@ -27,11 +29,19 @@ export function useTabBarScroll() {
     if (deltaY > 10 && !isHidden.current) {
       // Scrolling down -> hide Tab Bar
       isHidden.current = true;
-      LiquidTabBarNative.setHidden({ isHidden: true }).catch(() => {});
+      if (isNative && LiquidTabBarNative) {
+          LiquidTabBarNative.setHidden({ isHidden: true }).catch(() => {});
+      } else {
+          window.dispatchEvent(new CustomEvent('tabbar:hide'));
+      }
     } else if (deltaY < -10 && isHidden.current) {
       // Scrolling up -> show Tab Bar
       isHidden.current = false;
-      LiquidTabBarNative.setHidden({ isHidden: false }).catch(() => {});
+      if (isNative && LiquidTabBarNative) {
+          LiquidTabBarNative.setHidden({ isHidden: false }).catch(() => {});
+      } else {
+          window.dispatchEvent(new CustomEvent('tabbar:show'));
+      }
     }
     
     lastScrollY.current = currentY;
