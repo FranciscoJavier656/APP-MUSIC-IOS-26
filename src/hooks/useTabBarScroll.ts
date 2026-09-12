@@ -1,8 +1,4 @@
-import { useEffect, useRef } from 'react';
-import { Capacitor, registerPlugin } from '@capacitor/core';
-
-const isNative = Capacitor.isNativePlatform();
-const LiquidTabBarNative = isNative ? registerPlugin('LiquidTabBar') : null;
+import { useRef } from 'react';
 
 export function useTabBarScroll() {
   const lastScrollY = useRef(0);
@@ -17,11 +13,7 @@ export function useTabBarScroll() {
       lastScrollY.current = currentY;
       if (isHidden.current) {
         isHidden.current = false;
-        if (isNative && LiquidTabBarNative) {
-            LiquidTabBarNative.setHidden({ isHidden: false }).catch(() => {});
-        } else {
-            window.dispatchEvent(new CustomEvent('tabbar:show'));
-        }
+        window.dispatchEvent(new CustomEvent('tabbar:show'));
       }
       return;
     }
@@ -29,19 +21,11 @@ export function useTabBarScroll() {
     if (deltaY > 10 && !isHidden.current) {
       // Scrolling down -> hide Tab Bar
       isHidden.current = true;
-      if (isNative && LiquidTabBarNative) {
-          LiquidTabBarNative.setHidden({ isHidden: true }).catch(() => {});
-      } else {
-          window.dispatchEvent(new CustomEvent('tabbar:hide'));
-      }
+      window.dispatchEvent(new CustomEvent('tabbar:hide'));
     } else if (deltaY < -10 && isHidden.current) {
       // Scrolling up -> show Tab Bar
       isHidden.current = false;
-      if (isNative && LiquidTabBarNative) {
-          LiquidTabBarNative.setHidden({ isHidden: false }).catch(() => {});
-      } else {
-          window.dispatchEvent(new CustomEvent('tabbar:show'));
-      }
+      window.dispatchEvent(new CustomEvent('tabbar:show'));
     }
     
     lastScrollY.current = currentY;
