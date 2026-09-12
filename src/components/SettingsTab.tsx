@@ -1,4 +1,5 @@
 import { Settings as SettingsIcon, Shield, Database, Key, Moon } from 'lucide-react';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 
 interface SettingsTabProps {
   isDarkMode: boolean;
