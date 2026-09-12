@@ -4,13 +4,25 @@ import SwiftUI
 import WebKit
 
 // MARK: - Magic Transparency Hack
-// This makes the native UITabBarController completely transparent behind the tab bar,
-// allowing our ZStack background (the Capacitor WebView) to shine through on ALL tabs.
-extension UITabBarController {
-    override open func viewDidLoad() {
-        super.viewDidLoad()
-        self.view.backgroundColor = .clear
+
+struct TabViewBackgroundClearer: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIViewController {
+        let vc = UIViewController()
+        vc.view.backgroundColor = .clear
+        DispatchQueue.main.async {
+            var parent = vc.parent
+            while let currentParent = parent {
+                if let tabBarController = currentParent as? UITabBarController {
+                    tabBarController.view.backgroundColor = .clear
+                    break
+                }
+                parent = currentParent.parent
+            }
+        }
+        return vc
     }
+    
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }
 
 // MARK: - Hybrid Root View & Components
@@ -43,6 +55,7 @@ struct HybridRootView: View {
             // 2. The REAL Apple Native TabView!
             TabView(selection: $selectedTab) {
                 Color.clear
+                    .background(TabViewBackgroundClearer()) // Injects the transparency hack
                     .allowsHitTesting(false)
                     .tag("home")
                     .tabItem { Label("Inicio", systemImage: "house") }
