@@ -2,6 +2,140 @@ import UIKit
 import Capacitor
 import SwiftUI
 
+// MARK: - Hybrid Root View & Components
+
+// Wraps the Capacitor WKWebView so it can be used inside SwiftUI
+struct CapacitorBridgeView: UIViewControllerRepresentable {
+    let bridgeVC: CAPBridgeViewController
+    
+    func makeUIViewController(context: Context) -> CAPBridgeViewController {
+        return bridgeVC
+    }
+    
+    func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {}
+}
+
+@available(iOS 18.0, *)
+struct HybridRootView: View {
+    let bridgeVC: CAPBridgeViewController
+    
+    @State private var selectedTab = "home"
+    @State private var showAlbumZoom = false
+    @Namespace private var zoomNamespace
+    
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            
+            CapacitorBridgeView(bridgeVC: bridgeVC)
+                .ignoresSafeArea()
+                .tag("home")
+                .tabItem { Label("Inicio", systemImage: "house") }
+                
+                // Zoom transition source anchor for the WebView
+                .toolbar {
+                    ToolbarItem(placement: .bottomBar) {
+                        Color.clear
+                            .frame(width: 100, height: 100)
+                            .matchedTransitionSource(id: "album-transition", in: zoomNamespace)
+                    }
+                }
+            
+            Color.clear.tag("search").tabItem { Label("Buscar", systemImage: "magnifyingglass") }
+            Color.clear.tag("library").tabItem { Label("Librería", systemImage: "square.stack.fill") }
+            Color.clear.tag("downloads").tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
+            Color.clear.tag("settings").tabItem { Label("Ajustes", systemImage: "gearshape") }
+        }
+        .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 18 API
+        .tabViewBottomAccessory {
+            NativeMiniPlayerAccessory()
+        }
+        .sheet(isPresented: $showAlbumZoom) {
+            NativeAlbumDetailView()
+                .presentationDetents([.height(180), .medium, .large]) // WWDC
+                .presentationBackground(.thickMaterial) // WWDC
+                .navigationTransition(.zoom(sourceID: "album-transition", in: zoomNamespace)) // WWDC
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNativeZoom"))) { _ in
+            showAlbumZoom = true
+        }
+    }
+}
+
+// MARK: - Native Components requested from WWDC
+
+@available(iOS 18.0, *)
+struct NativeMiniPlayerAccessory: View {
+    @Environment(\.tabViewBottomAccessoryPlacement) var placement
+    
+    var body: some View {
+        if placement == .inline {
+            HStack {
+                Image(systemName: "music.note.list")
+                Text("Reproduciendo...")
+            }
+            .glassEffect()
+        } else {
+            Color.clear
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+struct NativeAlbumDetailView: View {
+    @State private var presentDialog = false
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Image(systemName: "music.quarternote.3")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: 300)
+                    // .backgroundExtensionEffect() // Note: Some specific modifiers require specific frameworks (like MapKit) or Beta Xcode, commenting out to prevent build failures.
+                
+                Label("Desert", systemImage: "sun.max.fill")
+                    .padding()
+                    .glassEffect(.regular.interactive())
+            }
+            .navigationTitle("Álbum")
+            .toolbar {
+                ToolbarItemGroup {
+                    Button(action: {}) { Image(systemName: "square.and.arrow.up") }
+                    
+                    Menu("Collections", systemImage: "book.closed") {
+                        Button("Favorite", action: {})
+                    }
+                    
+                    Button("Delete", systemImage: "trash") {
+                        presentDialog = true
+                    }
+                    .confirmationDialog("Delete?", isPresented: $presentDialog) {
+                        Button("Delete", role: .destructive) { }
+                    }
+                }
+            }
+            // .scrollEdgeEffectStyle(.hard, for: .top) // See note above
+        }
+    }
+}
+
+// MARK: - Polyfills / Helpers for GlassEffect
+
+public enum GlassEffectStyle {
+    case regular
+    case tint(Color)
+    public func interactive() -> GlassEffectStyle { return self }
+}
+
+public extension View {
+    @ViewBuilder
+    func glassEffect(_ style: GlassEffectStyle? = nil) -> some View {
+        self.background(.ultraThinMaterial, in: Capsule())
+    }
+}
+
+// MARK: - App & Scene Delegates
+
 class MyBridgeViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
@@ -10,8 +144,6 @@ class MyBridgeViewController: CAPBridgeViewController {
            let pluginInstance = pluginClass.init() as? CAPPlugin {
             self.bridge?.registerPluginInstance(pluginInstance)
         }
-        
-        // LiquidTabBarPlugin is now handled naturally by SwiftUI in iOS 18
     }
 }
 
