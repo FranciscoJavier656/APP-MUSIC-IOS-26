@@ -5,7 +5,6 @@ import WebKit
 
 // MARK: - Hybrid Root View & Components
 
-// Wraps the Capacitor WKWebView so it can be used inside SwiftUI
 struct CapacitorBridgeView: UIViewControllerRepresentable {
     let bridgeVC: CAPBridgeViewController
     
@@ -25,35 +24,42 @@ struct HybridRootView: View {
     @Namespace private var zoomNamespace
     
     var body: some View {
-        TabView(selection: $selectedTab) {
-            
+        ZStack {
+            // 1. The WebView is ALWAYS active in the background, regardless of Tab
             CapacitorBridgeView(bridgeVC: bridgeVC)
                 .ignoresSafeArea()
-                .tag("home")
-                .tabItem { Label("Inicio", systemImage: "house") }
+            
+            // 2. An invisible TabView overlays to provide the native bottom bar
+            TabView(selection: $selectedTab) {
+                // We use a clear view with allowsHitTesting(false) so touches pass through to the WebView
+                Color.clear
+                    .allowsHitTesting(false)
+                    .tag("home")
+                    .tabItem { Label("Inicio", systemImage: "house") }
                 
-                // Zoom transition source anchor for the WebView
-                .toolbar {
-                    ToolbarItem(placement: .bottomBar) {
-                        Color.clear
-                            .frame(width: 100, height: 100)
-                            .matchedTransitionSource(id: "album-transition", in: zoomNamespace)
-                    }
-                }
-            
-            Color.clear.tag("search").tabItem { Label("Buscar", systemImage: "magnifyingglass") }
-            Color.clear.tag("library").tabItem { Label("Librería", systemImage: "square.stack.fill") }
-            Color.clear.tag("downloads").tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
-            Color.clear.tag("settings").tabItem { Label("Ajustes", systemImage: "gearshape") }
-        }
-        .onChange(of: selectedTab) { newValue in
-            // When native tab changes, tell React to change its internal route
-            bridgeVC.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
-            
-            // Instantly snap back to 'home' tag in native so the Capacitor webview remains visible
-            // since the webview handles its own tab rendering inside 'home'
-            if newValue != "home" {
-                DispatchQueue.main.async { selectedTab = "home" }
+                Color.clear
+                    .allowsHitTesting(false)
+                    .tag("search")
+                    .tabItem { Label("Buscar", systemImage: "magnifyingglass") }
+                
+                Color.clear
+                    .allowsHitTesting(false)
+                    .tag("library")
+                    .tabItem { Label("Librería", systemImage: "square.stack.fill") }
+                
+                Color.clear
+                    .allowsHitTesting(false)
+                    .tag("downloads")
+                    .tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
+                
+                Color.clear
+                    .allowsHitTesting(false)
+                    .tag("settings")
+                    .tabItem { Label("Ajustes", systemImage: "gearshape") }
+            }
+            .onChange(of: selectedTab) { newValue in
+                // Sync native selection to React without jumping back!
+                bridgeVC.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
             }
         }
         .sheet(isPresented: $showAlbumZoom) {
@@ -132,6 +138,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             // HYBRID ARCHITECTURE: Inject Native SwiftUI TabBar and WWDC APIs wrapping the WebView
             let hybridView = HybridRootView(bridgeVC: bridgeVC)
             let hostingVC = UIHostingController(rootView: hybridView)
+            
+            // To ensure the TabView's background doesn't block the webview, we set it to transparent
+            hostingVC.view.backgroundColor = .clear
+            
             window?.rootViewController = hostingVC
         } else {
             // Fallback for older iOS versions
