@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useCallback,
 } from 'react';
-import { motion, useMotionValue, useSpring, animate } from 'motion/react';
+import { motion, useMotionValue, useSpring, animate, useTransform } from 'motion/react';
 import { Home, Search, Library, Download, Settings as SettingsIcon } from 'lucide-react';
 
 const TABS = [
@@ -193,8 +193,8 @@ export const LiquidTabBar = ({
             background: 'rgba(255, 255, 255, 0.2)',
             x: smoothX,
             translateX: '-50%',
-            scaleX: motion.useTransform(smoothStretch, s => 1 + (s / 58)),
-            scaleY: motion.useTransform(smoothStretch, s => 1 - (s / 150)),
+            scaleX: useTransform(smoothStretch, s => 1 + (s / 58)),
+            scaleY: useTransform(smoothStretch, s => 1 - (s / 150)),
             transformOrigin: 'center'
           }}
         />
