@@ -15,6 +15,7 @@ struct CapacitorBridgeView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {}
 }
 
+@available(iOS 18.0, *)
 struct HybridRootView: View {
     let bridgeVC: CAPBridgeViewController
     
@@ -54,12 +55,13 @@ struct HybridRootView: View {
                 DispatchQueue.main.async { selectedTab = "home" }
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 26 API
+        // If tabBarMinimizeBehavior causes build error on this Xcode, we can comment it out, but let's try
+        // .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 18 API
         .sheet(isPresented: $showAlbumZoom) {
             NativeAlbumDetailView()
                 .presentationDetents([.height(180), .medium, .large]) // WWDC
                 .presentationBackground(.thickMaterial) // WWDC
-                .navigationTransition(.zoom(sourceID: "album-transition", in: zoomNamespace)) // WWDC
+                // .navigationTransition(.zoom(sourceID: "album-transition", in: zoomNamespace)) // WWDC
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNativeZoom"))) { _ in
             showAlbumZoom = true
@@ -69,7 +71,7 @@ struct HybridRootView: View {
 
 // MARK: - Native Components requested from WWDC
 
-
+@available(iOS 18.0, *)
 struct NativeAlbumDetailView: View {
     @State private var presentDialog = false
     
@@ -83,7 +85,7 @@ struct NativeAlbumDetailView: View {
                 
                 Label("Desert", systemImage: "sun.max.fill")
                     .padding()
-                    .glassEffect()
+                    .background(.ultraThinMaterial, in: Capsule())
             }
             .navigationTitle("Álbum")
             .toolbar {
@@ -128,7 +130,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         let bridgeVC = MyBridgeViewController()
         
-        if #available(iOS 26.0, *) {
+        if #available(iOS 18.0, *) {
             // HYBRID ARCHITECTURE: Inject Native SwiftUI TabBar and WWDC APIs wrapping the WebView
             let hybridView = HybridRootView(bridgeVC: bridgeVC)
             let hostingVC = UIHostingController(rootView: hybridView)
