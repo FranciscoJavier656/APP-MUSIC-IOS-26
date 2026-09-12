@@ -52,14 +52,77 @@ export default function MiniPlayer() {
                 setIsExpanded(true);
               }}
             >
-              {/* Animated ambient background */}
-              <div className="absolute inset-0 z-0 pointer-events-none">
+              {/* Animated ambient background with iOS 18 Siri-Style Mesh Gradient */}
+              <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden rounded-[20px]">
                 {currentTrack.image && (
-                  <OfflineImage localPath={currentTrack.localCoverPath || currentTrack.original?.localCoverPath} remoteUrl={getImageSrc(currentTrack.album?.image || currentTrack.image)} alt="" className="absolute inset-0 w-full h-full object-cover blur-[20px] opacity-60 dark:opacity-40 transform scale-125 saturate-150" onError={(e) => { e.currentTarget.src = 'https://placehold.co/400x400/1C1C1E/FFFFFF/png?text = Audio' }} />
+                  <OfflineImage localPath={currentTrack.localCoverPath || currentTrack.original?.localCoverPath} remoteUrl={getImageSrc(currentTrack.album?.image || currentTrack.image)} alt="" className="absolute inset-0 w-full h-full object-cover blur-[20px] opacity-40 dark:opacity-30 transform scale-125 saturate-150" onError={(e) => { e.currentTarget.src = 'https://placehold.co/400x400/1C1C1E/FFFFFF/png?text = Audio' }} />
                 )}
+                
+                {/* Siri-style Mesh Gradient / Waveform (Active when playing) */}
+                <AnimatePresence>
+                  {isPlaying && (
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.5 }}
+                      className="absolute inset-0 mix-blend-overlay dark:mix-blend-screen"
+                      style={{ filter: 'blur(30px)' }}
+                    >
+                      {/* Red/Pink orb */}
+                      <motion.div
+                        animate={{
+                          scale: [1, 1.2, 1],
+                          x: ['-20%', '30%', '-20%'],
+                          y: ['-10%', '10%', '-10%'],
+                        }}
+                        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+                        className="absolute -top-1/2 -left-1/4 w-[150%] h-[150%] bg-[#ff2a5f] rounded-full mix-blend-screen opacity-50"
+                      />
+                      {/* Cyan/Blue orb */}
+                      <motion.div
+                        animate={{
+                          scale: [1, 1.4, 1],
+                          x: ['30%', '-30%', '30%'],
+                          y: ['10%', '-10%', '10%'],
+                        }}
+                        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+                        className="absolute -bottom-1/2 -right-1/4 w-[150%] h-[150%] bg-[#00f0ff] rounded-full mix-blend-screen opacity-50"
+                      />
+                      {/* Purple orb */}
+                      <motion.div
+                        animate={{
+                          scale: [1, 1.3, 1],
+                          x: ['0%', '20%', '0%'],
+                          y: ['20%', '-20%', '20%'],
+                        }}
+                        transition={{ duration: 7, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+                        className="absolute top-1/4 left-1/4 w-[120%] h-[120%] bg-[#8a2be2] rounded-full mix-blend-screen opacity-50"
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 {/* Material overlay - adapts to light/dark mode */}
-                <div className="absolute inset-0 bg-white/60 dark:bg-black/50 backdrop-blur-2xl" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent dark:from-white/5" />
+                <div className="absolute inset-0 bg-white/40 dark:bg-black/40 backdrop-blur-[40px]" />
+                
+                {/* Edge glow when playing (Siri 18 style) */}
+                <AnimatePresence>
+                   {isPlaying && (
+                     <motion.div
+                       initial={{ opacity: 0 }}
+                       animate={{ opacity: 1 }}
+                       exit={{ opacity: 0 }}
+                       className="absolute inset-0 rounded-[20px] border-[1.5px] border-transparent"
+                       style={{
+                         background: 'linear-gradient(45deg, rgba(255,42,95,0.4), rgba(0,240,255,0.4), rgba(138,43,226,0.4)) border-box',
+                         WebkitMask: 'linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0)',
+                         WebkitMaskComposite: 'xor',
+                         maskComposite: 'exclude'
+                       }}
+                     />
+                   )}
+                </AnimatePresence>
               </div>
 
               {/* Inner Content */}
