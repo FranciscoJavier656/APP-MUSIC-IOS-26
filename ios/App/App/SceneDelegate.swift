@@ -3,38 +3,9 @@ import Capacitor
 import SwiftUI
 import WebKit
 
-// MARK: - Magic Transparency & Pass-Through Hack
-
-struct TabViewBackgroundClearer: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> UIViewController {
-        let vc = UIViewController()
-        vc.view.backgroundColor = .clear
-        DispatchQueue.main.async {
-            var parent = vc.parent
-            while let currentParent = parent {
-                if let tabBarController = currentParent as? UITabBarController {
-                    // Make the TabView background transparent
-                    tabBarController.view.backgroundColor = .clear
-                    
-                    // Allow touches to pass through the empty content area down to the WebView
-                    for subview in tabBarController.view.subviews {
-                        if String(describing: type(of: subview)) != "UITabBar" {
-                            subview.isUserInteractionEnabled = false
-                        }
-                    }
-                    break
-                }
-                parent = currentParent.parent
-            }
-        }
-        return vc
-    }
-    
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
-}
-
 // MARK: - Hybrid Root View & Components
 
+// Wraps the Capacitor WKWebView so it can be used inside SwiftUI
 struct CapacitorBridgeView: UIViewControllerRepresentable {
     let bridgeVC: CAPBridgeViewController
     
@@ -53,16 +24,30 @@ struct HybridRootView: View {
     @State private var showAlbumZoom = false
     @Namespace private var zoomNamespace
     
+    init(bridgeVC: CAPBridgeViewController) {
+        self.bridgeVC = bridgeVC
+        // Magic Hack: Make the native TabBar background transparent BEFORE the view loads
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundColor = .clear
+        appearance.backgroundEffect = nil
+        appearance.shadowColor = .clear
+        
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
+    
     var body: some View {
         ZStack {
             // 1. The WebView is ALWAYS active in the background, untouched.
             CapacitorBridgeView(bridgeVC: bridgeVC)
                 .ignoresSafeArea()
             
-            // 2. The REAL Apple Native TabView requested by user
+            // 2. The REAL Apple Native TabView
             TabView(selection: $selectedTab) {
+                // The background modifier inside TabView was breaking touches and making it a static image.
+                // We removed TabViewBackgroundClearer and use UITabBar.appearance() instead.
                 Color.clear
-                    .background(TabViewBackgroundClearer()) // Injects transparency and touch pass-through
                     .tag("home")
                     .tabItem { Label("Inicio", systemImage: "house") }
                     
