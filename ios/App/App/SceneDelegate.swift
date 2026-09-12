@@ -3,7 +3,33 @@ import Capacitor
 import SwiftUI
 import WebKit
 
-// MARK: - Hybrid Root View & Components
+// MARK: - TabView Transparency Injector
+// This view walks up the UI hierarchy and forces all TabView containers to be transparent
+struct TransparentTabBackground: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        DispatchQueue.main.async {
+            var superview = view.superview
+            while let current = superview {
+                let className = String(describing: type(of: current))
+                // Force clear background on all structural container views created by TabView
+                if className.contains("UITabBarController") || 
+                   className.contains("UIHostingView") || 
+                   className.contains("Tab") || 
+                   className.contains("Hosting") || 
+                   className.contains("View") {
+                    
+                    current.backgroundColor = .clear
+                }
+                superview = current.superview
+            }
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
 
 // Wraps the Capacitor WKWebView so it can be used inside SwiftUI
 struct CapacitorBridgeView: UIViewControllerRepresentable {
@@ -26,7 +52,7 @@ struct HybridRootView: View {
     
     init(bridgeVC: CAPBridgeViewController) {
         self.bridgeVC = bridgeVC
-        // Magic Hack: Make the native TabBar background transparent BEFORE the view loads
+        // Make the native TabBar bottom bar background transparent
         let appearance = UITabBarAppearance()
         appearance.configureWithTransparentBackground()
         appearance.backgroundColor = .clear
@@ -45,25 +71,28 @@ struct HybridRootView: View {
             
             // 2. The REAL Apple Native TabView
             TabView(selection: $selectedTab) {
-                // The background modifier inside TabView was breaking touches and making it a static image.
-                // We removed TabViewBackgroundClearer and use UITabBar.appearance() instead.
-                Color.clear
+                TransparentTabBackground()
+                    .allowsHitTesting(false) // Allows touches to pass through the empty center area down to the WebView
                     .tag("home")
                     .tabItem { Label("Inicio", systemImage: "house") }
                     
-                Color.clear
+                TransparentTabBackground()
+                    .allowsHitTesting(false)
                     .tag("search")
                     .tabItem { Label("Buscar", systemImage: "magnifyingglass") }
                     
-                Color.clear
+                TransparentTabBackground()
+                    .allowsHitTesting(false)
                     .tag("library")
                     .tabItem { Label("Librería", systemImage: "square.stack.fill") }
                     
-                Color.clear
+                TransparentTabBackground()
+                    .allowsHitTesting(false)
                     .tag("downloads")
                     .tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
                     
-                Color.clear
+                TransparentTabBackground()
+                    .allowsHitTesting(false)
                     .tag("settings")
                     .tabItem { Label("Ajustes", systemImage: "gearshape") }
             }
