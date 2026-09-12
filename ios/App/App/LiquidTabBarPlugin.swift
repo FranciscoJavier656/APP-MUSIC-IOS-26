@@ -275,7 +275,7 @@ public enum GlassEffectStyle {
     public func interactive() -> GlassEffectStyle {
         return self
     }
-    public static var regular: GlassEffectStyle { .regular }
+    
 }
 
 public extension View {
