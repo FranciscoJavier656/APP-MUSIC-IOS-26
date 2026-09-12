@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import SwiftUI
+import WebKit
 
 // MARK: - Hybrid Root View & Components
 
@@ -47,7 +48,7 @@ struct HybridRootView: View {
         }
         .onChange(of: selectedTab) { newValue in
             // When native tab changes, tell React to change its internal route
-            bridgeVC.bridge?.evalWithPlugin("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
+            bridgeVC.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
             
             // Instantly snap back to 'home' tag in native so the Capacitor webview remains visible
             // since the webview handles its own tab rendering inside 'home'
@@ -55,13 +56,10 @@ struct HybridRootView: View {
                 DispatchQueue.main.async { selectedTab = "home" }
             }
         }
-        // If tabBarMinimizeBehavior causes build error on this Xcode, we can comment it out, but let's try
-        // .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 18 API
         .sheet(isPresented: $showAlbumZoom) {
             NativeAlbumDetailView()
                 .presentationDetents([.height(180), .medium, .large]) // WWDC
                 .presentationBackground(.thickMaterial) // WWDC
-                // .navigationTransition(.zoom(sourceID: "album-transition", in: zoomNamespace)) // WWDC
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNativeZoom"))) { _ in
             showAlbumZoom = true
@@ -111,7 +109,7 @@ struct NativeAlbumDetailView: View {
 // MARK: - App & Scene Delegates
 
 class MyBridgeViewController: CAPBridgeViewController {
-    override open func capacitorDidLoad() {
+    override func capacitorDidLoad() {
         super.capacitorDidLoad()
         
         if let pluginClass = NSClassFromString("QobuzAudioPlugin") as? NSObject.Type,
