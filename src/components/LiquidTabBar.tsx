@@ -168,7 +168,7 @@ export const LiquidTabBar = ({
           paddingBottom: 'env(safe-area-inset-bottom, 6px)',
           paddingLeft: 14,
           paddingRight: 14,
-          zIndex: 9000,
+          zIndex: 45,
           pointerEvents: 'none',
           // Extra top padding so the protruding bubble isn't clipped
           paddingTop: BUBBLE_UP + 4,
@@ -253,7 +253,7 @@ export const LiquidTabBar = ({
           paddingBottom: 'env(safe-area-inset-bottom, 6px)',
           paddingLeft: 14,
           paddingRight: 14,
-          zIndex: 9001,
+          zIndex: 46,
           pointerEvents: 'none',
         }}
       >

@@ -8,6 +8,19 @@ import { getImageSrc } from '../lib/image';
 import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
 
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.05 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0 }
+};
+
 interface PlaylistViewProps {
   playlistId: string;
   onBack: () => void;
