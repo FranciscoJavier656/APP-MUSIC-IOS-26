@@ -1,0 +1,94 @@
+name: Build iOS IPA for TrollStore
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build iOS App (TrollStore)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: |
+          rm -f package-lock.json
+          npm install
+
+      - name: Build Web App
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
+
+      - name: Fix Corrupted Assets (AI Studio Workaround)
+        run: |
+          # Borramos la carpeta de imágenes corrupta generada por la IA
+          rm -rf ios/App/App/Assets.xcassets
+          # Creamos un contenedor limpio para que Xcode no arroje error de "archivo no encontrado"
+          mkdir -p ios/App/App/Assets.xcassets
+          echo '{"info":{"author":"xcode","version":1}}' > ios/App/App/Assets.xcassets/Contents.json
+
+      - name: Inject Native Plugins into Xcode Project
+        run: |
+          gem install xcodeproj
+          cat << 'RUBYEOF' > patch_xcode.rb
+          require 'xcodeproj'
+          project_path = 'ios/App/App.xcodeproj'
+          project = Xcodeproj::Project.open(project_path)
+          app_group = project.main_group.children.find { |group| group.name == 'App' || group.path == 'App' } || project.main_group
+          
+          files = [
+            'ios/App/App/LiquidTabBarPlugin.swift',
+            'ios/App/App/LiquidTabBarPlugin_Register.m',
+            'ios/App/App/QobuzAudioPlugin_Register.m',
+            'ios/App/App/YagamiDownloadManager_Register.m',
+            'ios/App/App/YagamiDownloadManager.swift'
+          ]
+          
+          target = project.targets.first
+          
+          files.each do |file|
+            path = File.expand_path(file)
+            # Only add if not already in project
+            file_ref = app_group.new_reference(path)
+            target.add_file_references([file_ref])
+          end
+          project.save
+          RUBYEOF
+          ruby patch_xcode.rb
+
+      - name: Build iOS App (No Code Signing & No Icon)
+        run: |
+          cd ios/App
+          # ASSETCATALOG_COMPILER_APPICON_NAME="" le dice a Xcode que ignore la validación estricta del ícono
+          xcodebuild -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ./build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ASSETCATALOG_COMPILER_APPICON_NAME="" \
+            clean build
+
+      - name: Package into IPA
+        run: |
+          mkdir -p Payload
+          cp -r ios/App/build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -r AudiophilePlayer-TrollStore.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudiophilePlayer-TrollStore
+          path: AudiophilePlayer-TrollStore.ipa

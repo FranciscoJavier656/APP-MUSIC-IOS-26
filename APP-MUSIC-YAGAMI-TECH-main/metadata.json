@@ -1,0 +1,6 @@
+{
+  "name": "Qobuz DL iOS",
+  "description": "An iOS-styled high-res music app based on Qobuz DL, featuring Qobuz search integration and a Gemini-powered Music Assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
