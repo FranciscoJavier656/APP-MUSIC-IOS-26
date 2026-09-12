@@ -15,7 +15,6 @@ struct CapacitorBridgeView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {}
 }
 
-@available(iOS 26.0, *)
 struct HybridRootView: View {
     let bridgeVC: CAPBridgeViewController
     
@@ -45,10 +44,17 @@ struct HybridRootView: View {
             Color.clear.tag("downloads").tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
             Color.clear.tag("settings").tabItem { Label("Ajustes", systemImage: "gearshape") }
         }
-        .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 26 API
-        .tabViewBottomAccessory {
-            NativeMiniPlayerAccessory()
+        .onChange(of: selectedTab) { newValue in
+            // When native tab changes, tell React to change its internal route
+            bridgeVC.bridge?.evalWithPlugin("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
+            
+            // Instantly snap back to 'home' tag in native so the Capacitor webview remains visible
+            // since the webview handles its own tab rendering inside 'home'
+            if newValue != "home" {
+                DispatchQueue.main.async { selectedTab = "home" }
+            }
         }
+        .tabBarMinimizeBehavior(.onScrollDown) // WWDC iOS 26 API
         .sheet(isPresented: $showAlbumZoom) {
             NativeAlbumDetailView()
                 .presentationDetents([.height(180), .medium, .large]) // WWDC
@@ -63,24 +69,7 @@ struct HybridRootView: View {
 
 // MARK: - Native Components requested from WWDC
 
-@available(iOS 26.0, *)
-struct NativeMiniPlayerAccessory: View {
-    @Environment(\.tabViewBottomAccessoryPlacement) var placement
-    
-    var body: some View {
-        if placement == .inline {
-            HStack {
-                Image(systemName: "music.note.list")
-                Text("Reproduciendo...")
-            }
-            .glassEffect()
-        } else {
-            Color.clear
-        }
-    }
-}
 
-@available(iOS 26.0, *)
 struct NativeAlbumDetailView: View {
     @State private var presentDialog = false
     

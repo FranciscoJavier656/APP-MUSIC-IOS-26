@@ -245,7 +245,6 @@ function AppContent() {
         </AnimatePresence>
 
         {/* Mini Player */}
-
         <MiniPlayer />
 
         {/* Liquid Glass Tab Bar
