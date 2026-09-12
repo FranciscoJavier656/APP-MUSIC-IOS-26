@@ -1,33 +1,17 @@
 import UIKit
 import Capacitor
+import SwiftUI
 
 class MyBridgeViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
         
-        // Manual registration of the local QobuzAudioPlugin
-        if let pluginClass = NSClassFromString("QobuzAudioPlugin") as? NSObject.Type {
-            if let pluginInstance = pluginClass.init() as? CAPPlugin {
-                self.bridge?.registerPluginInstance(pluginInstance)
-                print("⚡️ [Capacitor] Successfully registered QobuzAudioPlugin manually.")
-            } else {
-                print("⚡️ [Capacitor] Found QobuzAudioPlugin class but couldn't cast to CAPPlugin.")
-            }
-        } else {
-            print("⚡️ [Capacitor] QobuzAudioPlugin class not found via NSClassFromString.")
+        if let pluginClass = NSClassFromString("QobuzAudioPlugin") as? NSObject.Type,
+           let pluginInstance = pluginClass.init() as? CAPPlugin {
+            self.bridge?.registerPluginInstance(pluginInstance)
         }
-
-        // Manual registration of LiquidTabBarPlugin (iOS 26 Liquid Glass tab bar)
-        if let pluginClass = NSClassFromString("LiquidTabBarPlugin") as? NSObject.Type {
-            if let pluginInstance = pluginClass.init() as? CAPPlugin {
-                self.bridge?.registerPluginInstance(pluginInstance)
-                print("⚡️ [Capacitor] Successfully registered LiquidTabBarPlugin manually.")
-            } else {
-                print("⚡️ [Capacitor] Found LiquidTabBarPlugin class but couldn't cast to CAPPlugin.")
-            }
-        } else {
-            print("⚡️ [Capacitor] LiquidTabBarPlugin class not found via NSClassFromString.")
-        }
+        
+        // LiquidTabBarPlugin is now handled naturally by SwiftUI in iOS 18
     }
 }
 
@@ -37,7 +21,19 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = MyBridgeViewController()
+        
+        let bridgeVC = MyBridgeViewController()
+        
+        if #available(iOS 18.0, *) {
+            // HYBRID ARCHITECTURE: Inject Native SwiftUI TabBar and WWDC APIs wrapping the WebView
+            let hybridView = HybridRootView(bridgeVC: bridgeVC)
+            let hostingVC = UIHostingController(rootView: hybridView)
+            window?.rootViewController = hostingVC
+        } else {
+            // Fallback for older iOS versions
+            window?.rootViewController = bridgeVC
+        }
+        
         window?.makeKeyAndVisible()
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }
