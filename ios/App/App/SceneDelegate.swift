@@ -3,33 +3,78 @@ import Capacitor
 import SwiftUI
 import WebKit
 
-// MARK: - WebView Host for Tabs
-// Safely moves the Capacitor WebView's UIView into the currently active tab
-// without touching ViewControllers, preventing black screens during rapid switching.
-struct WebViewHost: UIViewRepresentable {
-    let bridgeVC: CAPBridgeViewController
-    let isSelected: Bool
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        return view
+// MARK: - Native TabBar Overlay Component
+// This provides the 100% authentic Apple UITabBar natively,
+// but as an overlay that will NEVER block touches to the WebView.
+struct RealNativeTabBar: UIViewRepresentable {
+    @Binding var selectedTab: String
+    
+    func makeUIView(context: Context) -> UITabBar {
+        let tabBar = UITabBar()
+        tabBar.delegate = context.coordinator
+        
+        // Remove native background to let SwiftUI's .regularMaterial handle the safe area stretch perfectly
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        tabBar.standardAppearance = appearance
+        if #available(iOS 15.0, *) {
+            tabBar.scrollEdgeAppearance = appearance
+        }
+        
+        let tabs = [
+            ("home", "Inicio", "house"),
+            ("search", "Buscar", "magnifyingglass"),
+            ("library", "Librería", "square.stack.fill"),
+            ("downloads", "Descargas", "arrow.down.circle"),
+            ("settings", "Ajustes", "gearshape")
+        ]
+        
+        let items = tabs.enumerated().map { index, tab -> UITabBarItem in
+            let item = UITabBarItem(title: tab.1, image: UIImage(systemName: tab.2), tag: index)
+            item.accessibilityIdentifier = tab.0
+            return item
+        }
+        
+        tabBar.items = items
+        
+        return tabBar
     }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        if isSelected {
-            // Only move the view if it's not already here
-            if bridgeVC.view.superview != uiView {
-                bridgeVC.view.removeFromSuperview()
-                bridgeVC.view.frame = uiView.bounds
-                bridgeVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                uiView.addSubview(bridgeVC.view)
+    
+    func updateUIView(_ uiView: UITabBar, context: Context) {
+        if let items = uiView.items, let selected = items.first(where: { $0.accessibilityIdentifier == selectedTab }) {
+            uiView.selectedItem = selected
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UITabBarDelegate {
+        var parent: RealNativeTabBar
+        
+        init(_ parent: RealNativeTabBar) {
+            self.parent = parent
+        }
+        
+        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+            if let id = item.accessibilityIdentifier {
+                parent.selectedTab = id
             }
         }
     }
 }
 
-// MARK: - Hybrid Root View
+// MARK: - Hybrid Root View & Bridge
+struct CapacitorBridgeView: UIViewControllerRepresentable {
+    let bridgeVC: CAPBridgeViewController
+    
+    func makeUIViewController(context: Context) -> CAPBridgeViewController {
+        return bridgeVC
+    }
+    
+    func updateUIViewController(_ uiViewController: CAPBridgeViewController, context: Context) {}
+}
 
 @available(iOS 18.0, *)
 struct HybridRootView: View {
@@ -37,38 +82,29 @@ struct HybridRootView: View {
     
     @State private var selectedTab = "home"
     @State private var showAlbumZoom = false
-    @State private var isTabBarHidden = false
+    // Start hidden! The React app will unhide it after the intro animation via LiquidTabBar.setHidden(false)
+    @State private var isTabBarHidden = true 
     @Namespace private var zoomNamespace
     
     var body: some View {
-        // The REAL Apple Native TabView
-        TabView(selection: $selectedTab) {
-            WebViewHost(bridgeVC: bridgeVC, isSelected: selectedTab == "home")
+        ZStack(alignment: .bottom) {
+            // 1. The WebView is ALWAYS active in the background, untouched.
+            CapacitorBridgeView(bridgeVC: bridgeVC)
                 .ignoresSafeArea()
-                .tag("home")
-                .tabItem { Label("Inicio", systemImage: "house") }
-                
-            WebViewHost(bridgeVC: bridgeVC, isSelected: selectedTab == "search")
-                .ignoresSafeArea()
-                .tag("search")
-                .tabItem { Label("Buscar", systemImage: "magnifyingglass") }
-                
-            WebViewHost(bridgeVC: bridgeVC, isSelected: selectedTab == "library")
-                .ignoresSafeArea()
-                .tag("library")
-                .tabItem { Label("Librería", systemImage: "square.stack.fill") }
-                
-            WebViewHost(bridgeVC: bridgeVC, isSelected: selectedTab == "downloads")
-                .ignoresSafeArea()
-                .tag("downloads")
-                .tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
-                
-            WebViewHost(bridgeVC: bridgeVC, isSelected: selectedTab == "settings")
-                .ignoresSafeArea()
-                .tag("settings")
-                .tabItem { Label("Ajustes", systemImage: "gearshape") }
+            
+            // 2. The Native Apple UITabBar overlay (bottom only!)
+            if !isTabBarHidden {
+                RealNativeTabBar(selectedTab: $selectedTab)
+                    .frame(height: 49) // Standard TabBar height
+                    .background(
+                        Rectangle()
+                            .fill(.regularMaterial) // Apple's authentic native blur
+                            .overlay(Divider(), alignment: .top) // Native top border
+                            .ignoresSafeArea(edges: .bottom) // Stretches the blur to the physical bottom edge
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
-        .toolbar(isTabBarHidden ? .hidden : .visible, for: .tabBar) // iOS 16+ API for hiding the tab bar natively!
         .onChange(of: selectedTab) { newValue in
             // Sync native selection to React
             bridgeVC.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
@@ -83,7 +119,7 @@ struct HybridRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ToggleTabBar"))) { notification in
             if let hidden = notification.userInfo?["hidden"] as? Bool {
-                withAnimation(.easeInOut(duration: 0.3)) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                     isTabBarHidden = hidden
                 }
             }
@@ -153,17 +189,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let bridgeVC = MyBridgeViewController()
         
         if #available(iOS 18.0, *) {
-            // HYBRID ARCHITECTURE: Inject Native SwiftUI TabBar and WWDC APIs wrapping the WebView
+            // HYBRID ARCHITECTURE
             let hybridView = HybridRootView(bridgeVC: bridgeVC)
             let hostingVC = UIHostingController(rootView: hybridView)
             
             window?.rootViewController = hostingVC
-            
-            // Bridge requires a strong reference cycle or to be in hierarchy to receive callbacks? 
-            // We just reparent its view, so we must add it as a child VC to hostingVC so it receives lifecycle events.
-            hostingVC.addChild(bridgeVC)
-            bridgeVC.didMove(toParent: hostingVC)
-            
         } else {
             // Fallback for older iOS versions
             window?.rootViewController = bridgeVC
