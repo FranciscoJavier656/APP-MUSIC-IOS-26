@@ -3,7 +3,7 @@ import Capacitor
 import SwiftUI
 import WebKit
 
-// MARK: - Magic Transparency Hack
+// MARK: - Magic Transparency & Pass-Through Hack
 
 struct TabViewBackgroundClearer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
@@ -13,7 +13,15 @@ struct TabViewBackgroundClearer: UIViewControllerRepresentable {
             var parent = vc.parent
             while let currentParent = parent {
                 if let tabBarController = currentParent as? UITabBarController {
+                    // Make the TabView background transparent
                     tabBarController.view.backgroundColor = .clear
+                    
+                    // Allow touches to pass through the empty content area down to the WebView
+                    for subview in tabBarController.view.subviews {
+                        if String(describing: type(of: subview)) != "UITabBar" {
+                            subview.isUserInteractionEnabled = false
+                        }
+                    }
                     break
                 }
                 parent = currentParent.parent
@@ -27,7 +35,6 @@ struct TabViewBackgroundClearer: UIViewControllerRepresentable {
 
 // MARK: - Hybrid Root View & Components
 
-// Wraps the Capacitor WKWebView so it can be used inside SwiftUI
 struct CapacitorBridgeView: UIViewControllerRepresentable {
     let bridgeVC: CAPBridgeViewController
     
@@ -52,35 +59,29 @@ struct HybridRootView: View {
             CapacitorBridgeView(bridgeVC: bridgeVC)
                 .ignoresSafeArea()
             
-            // 2. The REAL Apple Native TabView!
+            // 2. The REAL Apple Native TabView requested by user
             TabView(selection: $selectedTab) {
                 Color.clear
-                    .background(TabViewBackgroundClearer()) // Injects the transparency hack
-                    .allowsHitTesting(false)
+                    .background(TabViewBackgroundClearer()) // Injects transparency and touch pass-through
                     .tag("home")
                     .tabItem { Label("Inicio", systemImage: "house") }
                     
                 Color.clear
-                    .allowsHitTesting(false)
                     .tag("search")
                     .tabItem { Label("Buscar", systemImage: "magnifyingglass") }
                     
                 Color.clear
-                    .allowsHitTesting(false)
                     .tag("library")
                     .tabItem { Label("Librería", systemImage: "square.stack.fill") }
                     
                 Color.clear
-                    .allowsHitTesting(false)
                     .tag("downloads")
                     .tabItem { Label("Descargas", systemImage: "arrow.down.circle") }
                     
                 Color.clear
-                    .allowsHitTesting(false)
                     .tag("settings")
                     .tabItem { Label("Ajustes", systemImage: "gearshape") }
             }
-            .tabBarMinimizeBehavior(.onScrollDown) // Restored real WWDC API
             .onChange(of: selectedTab) { newValue in
                 // Sync native selection to React without jumping back!
                 bridgeVC.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue)'}))")
@@ -88,8 +89,8 @@ struct HybridRootView: View {
         }
         .sheet(isPresented: $showAlbumZoom) {
             NativeAlbumDetailView()
-                .presentationDetents([.height(180), .medium, .large]) // WWDC
-                .presentationBackground(.thickMaterial) // WWDC
+                .presentationDetents([.height(180), .medium, .large])
+                .presentationBackground(.thickMaterial)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNativeZoom"))) { _ in
             showAlbumZoom = true
