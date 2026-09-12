@@ -5,11 +5,13 @@ import ExpandedPlayer from './ExpandedPlayer';
 import { motion, AnimatePresence } from 'motion/react';
 import { getImageSrc } from '../lib/image';
 import { OfflineImage } from './OfflineImage';
+import { Capacitor } from '@capacitor/core';
 
 
 export default function MiniPlayer() {
   const { currentTrack, isPlaying, isLoading, togglePlay, audioRef, isExpanded, setIsExpanded, nextTrack, prevTrack } = usePlayer();
   const progressRef = useRef<HTMLDivElement>(null);
+  const isNative = Capacitor.isNativePlatform();
   
   useEffect(() => {
     let animationId: number;
@@ -33,7 +35,7 @@ export default function MiniPlayer() {
             animate={{ y: isExpanded ? 50 : 0, opacity: isExpanded ? 0 : 1 }}
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className="absolute bottom-[calc(110px+env(safe-area-inset-bottom))] left-3 right-3 z-40"
+            className={`absolute left-3 right-3 z-40 ${isNative ? 'bottom-[calc(55px+env(safe-area-inset-bottom))]' : 'bottom-[calc(110px+env(safe-area-inset-bottom))]'}`}
           >
             <motion.div 
               className="cursor-pointer touch-none relative rounded-[20px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.4)] group"
