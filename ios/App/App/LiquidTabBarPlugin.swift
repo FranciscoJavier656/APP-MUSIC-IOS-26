@@ -5,14 +5,20 @@ import UIKit
 
 // MARK: - Observable State
 
+
+import Foundation
+import Capacitor
+import SwiftUI
+import UIKit
+
+// MARK: - Observable State
 class LiquidTabBarState: ObservableObject {
     @Published var activeTab: String
-
+    @Published var stretchFactor: CGFloat = 0.0
     init(activeTab: String = "home") {
         self.activeTab = activeTab
     }
 }
-
 // MARK: - Tab definitions
 
 private struct TabItem: Identifiable {
@@ -46,8 +52,19 @@ struct iOS26LiquidTabBar: View {
                 ForEach(kTabs) { tab in
                     let isActive = tab.id == state.activeTab
                     Button {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                            state.activeTab = tab.id
+                        let currentIndex = kTabs.firstIndex(where: { $0.id == state.activeTab }) ?? 0
+                        let newIndex = kTabs.firstIndex(where: { $0.id == tab.id }) ?? 0
+                        let distance = abs(newIndex - currentIndex)
+                        if distance > 0 {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
+                                state.activeTab = tab.id
+                                state.stretchFactor = CGFloat(distance) * 18.0
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) {
+                                    state.stretchFactor = 0.0
+                                }
+                            }
                         }
                         onTabSelected(tab.id)
                     } label: {
@@ -67,7 +84,7 @@ struct iOS26LiquidTabBar: View {
                             if isActive {
                                 Capsule()
                                     .fill(Color.white.opacity(0.2))
-                                    .frame(width: 58, height: 72)
+                                    .frame(width: 58 + state.stretchFactor, height: 72 - (state.stretchFactor * 0.15))
                                     .offset(y: -4)
                                     .glassEffectID("active_pill", in: namespace)
                             }
@@ -82,7 +99,7 @@ struct iOS26LiquidTabBar: View {
         .glassEffect(.regular.interactive())
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: state.activeTab)
+        .animation(.spring(response: 0.45, dampingFraction: 0.65), value: state.activeTab)
     }
 }
 
@@ -109,7 +126,7 @@ struct FallbackTabBar: View {
                             if tab.id == state.activeTab {
                                 Capsule()
                                     .fill(Color.white.opacity(0.2))
-                                    .frame(width: 58, height: 72)
+                                    .frame(width: 58 + state.stretchFactor, height: 72 - (state.stretchFactor * 0.15))
                                     .offset(y: -4)
                                     .matchedGeometryEffect(id: "pill", in: bubbleNS)
                             }
@@ -123,8 +140,19 @@ struct FallbackTabBar: View {
                 ForEach(kTabs) { tab in
                     let isActive = tab.id == state.activeTab
                     Button {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                            state.activeTab = tab.id
+                        let currentIndex = kTabs.firstIndex(where: { $0.id == state.activeTab }) ?? 0
+                        let newIndex = kTabs.firstIndex(where: { $0.id == tab.id }) ?? 0
+                        let distance = abs(newIndex - currentIndex)
+                        if distance > 0 {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
+                                state.activeTab = tab.id
+                                state.stretchFactor = CGFloat(distance) * 18.0
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) {
+                                    state.stretchFactor = 0.0
+                                }
+                            }
                         }
                         onTabSelected(tab.id)
                     } label: {
@@ -147,7 +175,7 @@ struct FallbackTabBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: state.activeTab)
+        .animation(.spring(response: 0.45, dampingFraction: 0.65), value: state.activeTab)
     }
 }
 
