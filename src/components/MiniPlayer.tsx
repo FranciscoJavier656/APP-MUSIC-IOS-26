@@ -5,14 +5,43 @@ import ExpandedPlayer from './ExpandedPlayer';
 import { motion, AnimatePresence } from 'motion/react';
 import { getImageSrc } from '../lib/image';
 import { OfflineImage } from './OfflineImage';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
+const isNative = Capacitor.isNativePlatform();
+const LiquidTabBarNative: any = isNative ? registerPlugin('LiquidTabBar') : null;
 
 
 export default function MiniPlayer() {
   const { currentTrack, isPlaying, isLoading, togglePlay, audioRef, isExpanded, setIsExpanded, nextTrack, prevTrack } = usePlayer();
   const progressRef = useRef<HTMLDivElement>(null);
-  const isNative = Capacitor.isNativePlatform();
-  
+
+  // ─── Sync now-playing data to native iOS 26 TabView bottom accessory ───
+  useEffect(() => {
+    if (!isNative || !LiquidTabBarNative) return;
+    LiquidTabBarNative.updateNowPlaying({
+      title: currentTrack?.title || '',
+      artist: currentTrack?.artist || '',
+      isPlaying: isPlaying,
+      hasTrack: !!currentTrack,
+    }).catch(() => {});
+  }, [currentTrack?.title, currentTrack?.artist, isPlaying, !!currentTrack]);
+
+  // ─── Listen for native accessory play/pause and expand actions ───
+  useEffect(() => {
+    if (!isNative) return;
+    
+    const handleToggle = () => togglePlay();
+    const handleExpand = () => setIsExpanded(true);
+    
+    document.addEventListener('toggle-play-from-native', handleToggle);
+    document.addEventListener('expand-player-from-native', handleExpand);
+    
+    return () => {
+      document.removeEventListener('toggle-play-from-native', handleToggle);
+      document.removeEventListener('expand-player-from-native', handleExpand);
+    };
+  }, [togglePlay, setIsExpanded]);
+
   useEffect(() => {
     let animationId: number;
     const updateProgress = () => {
@@ -29,7 +58,9 @@ export default function MiniPlayer() {
   return (
     <>
       <AnimatePresence>
-        {currentTrack && !isExpanded && (
+        {/* On native iOS 26, the floating mini player is replaced by the native TabView bottom accessory.
+            We only show the React mini player on web or when native is unavailable. */}
+        {currentTrack && !isExpanded && !isNative && (
           <motion.div 
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: isExpanded ? 50 : 0, opacity: isExpanded ? 0 : 1 }}

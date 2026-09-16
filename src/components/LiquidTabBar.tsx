@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Home, Search, Library, Download, Settings as SettingsIcon } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 
 const TABS = [
   { id: 'home',      icon: Home,          label: 'Inicio'    },
@@ -17,6 +18,9 @@ export const LiquidTabBar = ({
   activeTab: string;
   setActiveTab: (id: string) => void;
 }) => {
+  // On native iOS, the SwiftUI TabView handles the tab bar — don't render React version
+  if (Capacitor.isNativePlatform()) return null;
+
   const [isHidden, setIsHidden] = useState(false);
 
   useEffect(() => {

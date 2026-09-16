@@ -70,30 +70,37 @@ function AppContent() {
   const [globalOverlay, setGlobalOverlay] = useState<{ type: 'album'|'artist'|'playlist', id: string } | null>(null);
   const [useNativeTabBar, setUseNativeTabBar] = useState(false);
 
-  // ─── Native iOS 26 Liquid Glass TabBar (real Apple APIs) ───
+  // ─── Native iOS 26 TabView with Liquid Glass (real Apple WWDC 2025 APIs) ───
   useEffect(() => {
     if (!showUI || !isNative || !LiquidTabBarNative) return;
-    let listener: any = null;
 
     const initNative = async () => {
       try {
         await LiquidTabBarNative.initializeTabBar({ activeTab: 'home' });
         setUseNativeTabBar(true);
-        console.log('⚡️ Native iOS 26 Liquid Glass TabBar initialized');
-
-        listener = await LiquidTabBarNative.addListener('onTabSelected', (info: any) => {
-          if (info?.tabId) setActiveTab(info.tabId);
-        });
+        console.log('⚡️ Native iOS 26 SwiftUI TabView initialized (Liquid Glass)');
       } catch (e) {
         // Native plugin failed — React fallback will be used
-        console.warn('Native LiquidTabBar unavailable, using React fallback:', e);
+        console.warn('Native TabView unavailable, using React fallback:', e);
         setUseNativeTabBar(false);
       }
     };
     initNative();
 
+    // Listen for native tab changes from SwiftUI TabView → React
+    const handleNativeTogglePlay = () => {
+      document.dispatchEvent(new CustomEvent('toggle-play-from-native'));
+    };
+    const handleNativeExpandPlayer = () => {
+      document.dispatchEvent(new CustomEvent('expand-player-from-native'));
+    };
+    
+    document.addEventListener('native-toggle-play', handleNativeTogglePlay);
+    document.addEventListener('native-expand-player', handleNativeExpandPlayer);
+
     return () => {
-      if (listener?.remove) listener.remove().catch(() => {});
+      document.removeEventListener('native-toggle-play', handleNativeTogglePlay);
+      document.removeEventListener('native-expand-player', handleNativeExpandPlayer);
     };
   }, [showUI]);
 
