@@ -805,8 +805,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     @synchronized ([QobuzAudioPlugin class]) {
         if (g_tapContext) {
             g_tapContext->eqEnabled = enabled;
-            // Clear delay state to prevent audio artifacts when toggling
-            memset(g_tapContext->eqDelayState, 0, sizeof(g_tapContext->eqDelayState));
+            // Removed memset(eqDelayState) because zeroing IIR filter memory causes audio pops.
         }
     }
     
@@ -892,7 +891,6 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 g_tapContext->eqGains[i] = [gains[i] floatValue];
             }
             recalcAllEQCoeffs(g_tapContext);
-            memset(g_tapContext->eqDelayState, 0, sizeof(g_tapContext->eqDelayState));
             [self persistEQGains];
         } else {
             [[NSUserDefaults standardUserDefaults] setObject:gains forKey:@"eq_gains"];
