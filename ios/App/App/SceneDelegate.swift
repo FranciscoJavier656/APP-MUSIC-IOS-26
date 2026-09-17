@@ -102,27 +102,7 @@ struct HybridRootView: View {
                     .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
         }
-        // ── Tab bar accessory for mini player (WWDC 2025: 5:39) ──
-        .tabViewBottomAccessory {
-            if hasTrack && !isTabBarHidden {
-                MusicPlaybackAccessory(
-                    trackTitle: currentTrackTitle,
-                    artistName: currentTrackArtist,
-                    isPlaying: isPlaying,
-                    onPlayPause: {
-                        bridgeVC.webView?.evaluateJavaScript(
-                            "document.dispatchEvent(new CustomEvent('native-toggle-play'))"
-                        )
-                    },
-                    onTap: {
-                        bridgeVC.webView?.evaluateJavaScript(
-                            "document.dispatchEvent(new CustomEvent('native-expand-player'))"
-                        )
-                    }
-                )
-            }
-        }
-        .onChange(of: selectedTab) { oldValue, newValue in
+        .onChange(of: selectedTab) { _, newValue in
             // Sync native tab selection → React WebView
             bridgeVC.webView?.evaluateJavaScript(
                 "window.dispatchEvent(new CustomEvent('navigate', {detail: '\(newValue.rawValue)'}))"
@@ -164,90 +144,6 @@ struct HybridRootView: View {
                let tab = AppTab(rawValue: tabId) {
                 selectedTab = tab
             }
-        }
-    }
-}
-
-// MARK: - Music Playback Bottom Accessory (WWDC 2025: 5:39)
-// Uses @Environment(\.tabViewBottomAccessoryPlacement) for adaptive layout
-@available(iOS 26, *)
-struct MusicPlaybackAccessory: View {
-    let trackTitle: String
-    let artistName: String
-    let isPlaying: Bool
-    let onPlayPause: () -> Void
-    let onTap: () -> Void
-    
-    @Environment(\.tabViewBottomAccessoryPlacement) var placement
-    
-    var body: some View {
-        if placement == .inline {
-            // ── Compact layout (when tab bar is minimized) ──
-            HStack(spacing: 8) {
-                Image(systemName: "music.note")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
-                Text(trackTitle)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                
-                Spacer()
-                
-                Button(action: onPlayPause) {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.caption)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onTap)
-        } else {
-            // ── Full layout (above the tab bar) ──
-            HStack(spacing: 12) {
-                // Album art placeholder
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.quaternary)
-                    .frame(width: 44, height: 44)
-                    .overlay {
-                        Image(systemName: "music.note")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                
-                // Track info
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(trackTitle)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                    
-                    Text(artistName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                // Playback controls
-                HStack(spacing: 16) {
-                    Button(action: onPlayPause) {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title3)
-                    }
-                    
-                    Button(action: {}) {
-                        Image(systemName: "forward.fill")
-                            .font(.subheadline)
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onTap)
         }
     }
 }
