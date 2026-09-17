@@ -399,13 +399,45 @@ struct NativeAlbumDetailView: View {
 }
 
 // MARK: - Bridge ViewController
-class MyBridgeViewController: CAPBridgeViewController {
+class MyBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
         
         if let pluginClass = NSClassFromString("QobuzAudioPlugin") as? NSObject.Type,
            let pluginInstance = pluginClass.init() as? CAPPlugin {
             self.bridge?.registerPluginInstance(pluginInstance)
+        }
+        
+        // Direct bridge for Liquid Glass Tab Bar (bypasses Capacitor plugins completely)
+        self.webView?.configuration.userContentController.add(self, name: "LiquidTabBarDirect")
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "LiquidTabBarDirect" {
+            if let body = message.body as? String {
+                let hidden = (body == "hide")
+                DispatchQueue.main.async {
+                    // 1. Nuke the UI using direct UIKit traversal across ALL windows
+                    for windowScene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+                        for window in windowScene.windows {
+                            func traverse(view: UIView) {
+                                let typeName = String(describing: type(of: view))
+                                // Target Liquid Glass internal views specifically
+                                if typeName.contains("_UIFluid") || typeName.contains("BottomAccessory") {
+                                    view.isHidden = hidden
+                                    view.alpha = hidden ? 0 : 1
+                                    view.isUserInteractionEnabled = !hidden
+                                }
+                                for subview in view.subviews { traverse(view: subview) }
+                            }
+                            traverse(view: window)
+                        }
+                    }
+                    
+                    // 2. Post notification for SwiftUI state
+                    NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": hidden])
+                }
+            }
         }
     }
 }

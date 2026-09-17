@@ -41,7 +41,17 @@ export default function ExpandedPlayer() {
       (window as any).isPlayerExpanded = true;
       window.dispatchEvent(new CustomEvent('tabbar:hide'));
       document.dispatchEvent(new CustomEvent('tabbar:hide'));
-      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: true }); if (lt.hide) lt.hide(); } } catch(e){}
+      try { 
+        if (Capacitor.isNativePlatform()) { 
+          const lt = registerPlugin('LiquidTabBar'); 
+          lt.setHidden({ hidden: true }); 
+          if (lt.hide) lt.hide(); 
+          // DIRECT OVERRIDE: Send raw message to Swift bypassing Capacitor
+          if ((window as any).webkit?.messageHandlers?.LiquidTabBarDirect) {
+            (window as any).webkit.messageHandlers.LiquidTabBarDirect.postMessage("hide");
+          }
+        } 
+      } catch(e){}
     } else {
       (window as any).isPlayerExpanded = false;
       const overlayActive = document.querySelector('.album-view-active, .playlist-view-active, .artist-view-active') || window.location.hash.includes('overlay');
@@ -50,7 +60,17 @@ export default function ExpandedPlayer() {
       if ((window as any).isGlobalOverlayActive) return;
       window.dispatchEvent(new CustomEvent('tabbar:show'));
       document.dispatchEvent(new CustomEvent('tabbar:show'));
-      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: false }); if (lt.show) lt.show(); } } catch(e){}
+      try { 
+        if (Capacitor.isNativePlatform()) { 
+          const lt = registerPlugin('LiquidTabBar'); 
+          lt.setHidden({ hidden: false }); 
+          if (lt.show) lt.show(); 
+          // DIRECT OVERRIDE: Send raw message to Swift bypassing Capacitor
+          if ((window as any).webkit?.messageHandlers?.LiquidTabBarDirect) {
+            (window as any).webkit.messageHandlers.LiquidTabBarDirect.postMessage("show");
+          }
+        } 
+      } catch(e){}
     }
   }, [isExpanded]);
 
