@@ -8,6 +8,12 @@ public class LiquidTabBarPlugin: CAPPlugin {
     @objc func setHidden(_ call: CAPPluginCall) {
         let isHidden = call.getBool("hidden") ?? false
         DispatchQueue.main.async {
+            // FIRE AN ALERT TO PROVE WE ARE HERE
+            let alert = UIAlertController(title: "DEBUG", message: "setHidden CALLED! hidden: \(isHidden)", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            if let rootVC = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first?.rootViewController }).first {
+                rootVC.present(alert, animated: true)
+            }
             NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": isHidden])
         }
         call.resolve()

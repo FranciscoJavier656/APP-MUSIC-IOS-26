@@ -45,8 +45,8 @@ enum AppTab: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - iOS 26 Native TabView with Liquid Glass (WWDC 2025)
-@available(iOS 26, *)
+// MARK: - iOS 18+ (Marketed as iOS 26) Native TabView with Liquid Glass (WWDC 2025)
+@available(iOS 18.0, *)
 struct HybridRootView: View {
     let bridgeVC: CAPBridgeViewController
     
@@ -421,19 +421,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         let bridgeVC = MyBridgeViewController()
         
-        if #available(iOS 26, *) {
-            // iOS 26+ → Full native SwiftUI TabView with Liquid Glass
+        if #available(iOS 18.0, *) {
+            // iOS 18+ (Marketed as iOS 26) → Full native SwiftUI TabView with Liquid Glass
             let hybridView = HybridRootView(bridgeVC: bridgeVC)
             let hostingVC = UIHostingController(rootView: hybridView)
             window?.rootViewController = hostingVC
-        } else if #available(iOS 18.0, *) {
-            // iOS 18–25 → Legacy UITabBar overlay approach
+        } else {
+            // iOS < 18 → Legacy UITabBar overlay approach
             let hybridView = HybridRootViewLegacy(bridgeVC: bridgeVC)
             let hostingVC = UIHostingController(rootView: hybridView)
             window?.rootViewController = hostingVC
-        } else {
-            // iOS < 18 → Pure WebView fallback
-            window?.rootViewController = bridgeVC
         }
         
         window?.makeKeyAndVisible()
