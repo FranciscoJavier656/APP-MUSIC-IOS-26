@@ -388,7 +388,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 }
                 
                 // Safety clip for interleaved data
-                UInt32 totalSamples = numberFrames * numCh;
+                UInt32 totalSamples = (UInt32)(numberFrames * numCh);
                 for (UInt32 i = 0; i < totalSamples; i++) {
                     interleavedData[i] = fmaxf(-1.0f, fminf(1.0f, interleavedData[i]));
                 }
@@ -800,7 +800,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 // ═══════════════════════════════════════════════════════════
 
 - (void)setEQEnabled:(CAPPluginCall *)call {
-    BOOL enabled = [[call getBool:@"enabled" defaultValue:@NO] boolValue];
+    BOOL enabled = [call.options[@"enabled"] boolValue];
     
     @synchronized ([QobuzAudioPlugin class]) {
         if (g_tapContext) {
@@ -823,7 +823,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     NSNumber *gainNum = call.options[@"gain"];
     
     if (!bandNum || !gainNum) {
-        [call reject:@"Missing band or gain"];
+        [call resolve:@{@"error": @"Missing band or gain"}];
         return;
     }
     
@@ -831,7 +831,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     float gain = [gainNum floatValue];
     
     if (band < 0 || band >= EQ_NUM_BANDS) {
-        [call reject:@"Band out of range (0-9)"];
+        [call resolve:@{@"error": @"Band out of range (0-9)"}];
         return;
     }
     
@@ -863,7 +863,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 - (void)setEQPreset:(CAPPluginCall *)call {
     NSString *preset = call.options[@"preset"];
     if (!preset) {
-        [call reject:@"Missing preset name"];
+        [call resolve:@{@"error": @"Missing preset name"}];
         return;
     }
     
@@ -882,7 +882,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     
     NSArray *gains = presets[preset];
     if (!gains) {
-        [call reject:[NSString stringWithFormat:@"Unknown preset: %@", preset]];
+        [call resolve:@{@"error": [NSString stringWithFormat:@"Unknown preset: %@", preset]}];
         return;
     }
     
