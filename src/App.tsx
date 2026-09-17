@@ -119,6 +119,9 @@ function AppContent() {
   }, []);
 
 
+  const globalOverlayRef = useRef(globalOverlay);
+  useEffect(() => { globalOverlayRef.current = globalOverlay; }, [globalOverlay]);
+
   useEffect(() => {
     const handleNavigate = (e: any) => {
       if (e.detail) {
@@ -132,6 +135,7 @@ function AppContent() {
       }
     };
     const handleShow = () => {
+      if ((window as any).isPlayerExpanded || globalOverlayRef.current) return;
       if (LiquidTabBarNative) {
         LiquidTabBarNative.setHidden({ hidden: false }).catch(() => {});
         if (LiquidTabBarNative.show) LiquidTabBarNative.show().catch(() => {});
@@ -154,11 +158,13 @@ function AppContent() {
   }, [useNativeTabBar]);
 
   useEffect(() => {
+    (window as any).isGlobalOverlayActive = !!globalOverlay;
     if (globalOverlay) {
       window.dispatchEvent(new CustomEvent('tabbar:hide'));
       document.dispatchEvent(new CustomEvent('tabbar:hide'));
       try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: true }); if (lt.hide) lt.hide(); } } catch(e){}
     } else {
+      if ((window as any).isPlayerExpanded) return;
       window.dispatchEvent(new CustomEvent('tabbar:show'));
       document.dispatchEvent(new CustomEvent('tabbar:show'));
       try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: false }); if (lt.show) lt.show(); } } catch(e){}

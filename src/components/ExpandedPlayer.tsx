@@ -38,10 +38,16 @@ export default function ExpandedPlayer() {
 
   useEffect(() => {
     if (isExpanded) {
+      (window as any).isPlayerExpanded = true;
       window.dispatchEvent(new CustomEvent('tabbar:hide'));
       document.dispatchEvent(new CustomEvent('tabbar:hide'));
       try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: true }); if (lt.hide) lt.hide(); } } catch(e){}
     } else {
+      (window as any).isPlayerExpanded = false;
+      const overlayActive = document.querySelector('.album-view-active, .playlist-view-active, .artist-view-active') || window.location.hash.includes('overlay');
+      if (overlayActive) return; // Wait, we can't easily read globalOverlay here unless we export a getter. But wait, App.tsx's handleShow already checks globalOverlayRef! So we can just dispatch tabbar:show and let App.tsx handle it. BUT we also directly call the native plugin here!
+      // To be safe, we will just NOT directly call native plugin here, or we check a global.
+      if ((window as any).isGlobalOverlayActive) return;
       window.dispatchEvent(new CustomEvent('tabbar:show'));
       document.dispatchEvent(new CustomEvent('tabbar:show'));
       try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: false }); if (lt.show) lt.show(); } } catch(e){}
