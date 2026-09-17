@@ -39,8 +39,12 @@ export default function ExpandedPlayer() {
   useEffect(() => {
     if (isExpanded) {
       window.dispatchEvent(new CustomEvent('tabbar:hide'));
+      document.dispatchEvent(new CustomEvent('tabbar:hide'));
+      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: true }); if (lt.hide) lt.hide(); } } catch(e){}
     } else {
       window.dispatchEvent(new CustomEvent('tabbar:show'));
+      document.dispatchEvent(new CustomEvent('tabbar:show'));
+      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: false }); if (lt.show) lt.show(); } } catch(e){}
     }
   }, [isExpanded]);
 

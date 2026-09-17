@@ -126,22 +126,44 @@ function AppContent() {
       }
     };
     const handleHide = () => {
-      if (useNativeTabBar && LiquidTabBarNative) LiquidTabBarNative.setHidden({ hidden: true });
+      if (LiquidTabBarNative) {
+        LiquidTabBarNative.setHidden({ hidden: true }).catch(() => {});
+        if (LiquidTabBarNative.hide) LiquidTabBarNative.hide().catch(() => {});
+      }
     };
     const handleShow = () => {
-      if (useNativeTabBar && LiquidTabBarNative) LiquidTabBarNative.setHidden({ hidden: false });
+      if (LiquidTabBarNative) {
+        LiquidTabBarNative.setHidden({ hidden: false }).catch(() => {});
+        if (LiquidTabBarNative.show) LiquidTabBarNative.show().catch(() => {});
+      }
     };
     window.addEventListener('navigate', handleNavigate);
     document.addEventListener('navigate', handleNavigate);
     window.addEventListener('tabbar:hide', handleHide);
     window.addEventListener('tabbar:show', handleShow);
+    document.addEventListener('tabbar:hide', handleHide as any);
+    document.addEventListener('tabbar:show', handleShow as any);
     return () => {
       window.removeEventListener('navigate', handleNavigate);
       document.removeEventListener('navigate', handleNavigate);
       window.removeEventListener('tabbar:hide', handleHide);
       window.removeEventListener('tabbar:show', handleShow);
+      document.removeEventListener('tabbar:hide', handleHide as any);
+      document.removeEventListener('tabbar:show', handleShow as any);
     };
   }, [useNativeTabBar]);
+
+  useEffect(() => {
+    if (globalOverlay) {
+      window.dispatchEvent(new CustomEvent('tabbar:hide'));
+      document.dispatchEvent(new CustomEvent('tabbar:hide'));
+      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: true }); if (lt.hide) lt.hide(); } } catch(e){}
+    } else {
+      window.dispatchEvent(new CustomEvent('tabbar:show'));
+      document.dispatchEvent(new CustomEvent('tabbar:show'));
+      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: false }); if (lt.show) lt.show(); } } catch(e){}
+    }
+  }, [globalOverlay]);
 
   
   const [isDarkMode, setIsDarkMode] = useState(() => {

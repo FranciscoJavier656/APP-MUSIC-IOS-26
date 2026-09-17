@@ -7,15 +7,23 @@ public class LiquidTabBarPlugin: CAPPlugin {
     /// Show or hide the native tab bar
     @objc func setHidden(_ call: CAPPluginCall) {
         let isHidden = call.getBool("hidden") ?? false
-        
         DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: NSNotification.Name("ToggleTabBar"),
-                object: nil,
-                userInfo: ["hidden": isHidden]
-            )
+            NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": isHidden])
         }
-        
+        call.resolve()
+    }
+
+    @objc func hide(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": true])
+        }
+        call.resolve()
+    }
+
+    @objc func show(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": false])
+        }
         call.resolve()
     }
     
