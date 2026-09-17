@@ -5,6 +5,9 @@ export function useTabBarScroll() {
   const isHidden = useRef(false);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    // Disable JS scroll hiding on native platforms since iOS handles it natively
+    if ((window as any).Capacitor?.isNativePlatform?.()) return;
+
     const currentY = e.currentTarget.scrollTop;
     const deltaY = currentY - lastScrollY.current;
     

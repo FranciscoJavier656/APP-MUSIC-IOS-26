@@ -51,7 +51,7 @@ struct HybridRootView: View {
     let bridgeVC: CAPBridgeViewController
     
     @State private var selectedTab: AppTab = .home
-    @State private var isTabBarHidden = true
+    @State private var isTabBarHidden = false
     @State private var showAlbumZoom = false
     @State private var downloadBadgeCount = 0
     
@@ -67,39 +67,36 @@ struct HybridRootView: View {
             Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: .home) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
             // ── Search Tab (native search role from WWDC 2025) ──
             Tab(value: .search, role: .search) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
             // ── Library Tab ──
             Tab(AppTab.library.title, systemImage: AppTab.library.systemImage, value: .library) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
             // ── Downloads Tab ──
             Tab(AppTab.downloads.title, systemImage: AppTab.downloads.systemImage, value: .downloads) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
             // ── Settings Tab ──
             Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: .settings) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
         }
         // ── Minimize tab bar on scroll (WWDC 2025: 5:07) ──
         .tabBarMinimizeBehavior(.onScrollDown)
+        // ── Hide Tab Bar when isTabBarHidden is true ──
+        .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
         // ── Tab bar accessory for mini player (WWDC 2025: 5:39) ──
         .tabViewBottomAccessory {
             if hasTrack {
@@ -256,7 +253,7 @@ struct HybridRootViewLegacy: View {
     let bridgeVC: CAPBridgeViewController
     
     @State private var selectedTab = "home"
-    @State private var isTabBarHidden = true
+    @State private var isTabBarHidden = false
     @State private var showAlbumZoom = false
     
     var body: some View {
