@@ -39,33 +39,6 @@ static const float EQ_Q_TABLE[EQ_NUM_BANDS] = {
 @property (nonatomic, copy) NSString *eqPresetName;
 @end
 
-// Static reference to TapContext for EQ control from main thread
-static TapContext *g_tapContext = NULL;
-
-@interface QobuzAudioPlugin (CAPPluginCategory) <CAPBridgedPlugin>
-@end
-
-@implementation QobuzAudioPlugin (CAPPluginCategory)
-- (NSString *)identifier { return @"QobuzAudioPlugin"; }
-- (NSString *)jsName { return @"QobuzAudio"; }
-- (NSArray *)pluginMethods {
-    NSMutableArray *methods = [NSMutableArray new];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"play" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"pause" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"resume" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"seek" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"updateMetadata" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setupRemoteControls" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"embedLyrics" returnType:CAPPluginReturnPromise]];
-    // EQ Methods
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQEnabled" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQBand" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQPreset" returnType:CAPPluginReturnPromise]];
-    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"getEQState" returnType:CAPPluginReturnPromise]];
-    return methods;
-}
-@end
-
 // Context for the audio tap
 typedef struct {
     void *plugin;
@@ -95,6 +68,33 @@ typedef struct {
     int numChannels;                        // Captured in tapPrepare
     BOOL isNonInterleaved;                  // Captured in tapPrepare
 } TapContext;
+
+// Static reference to TapContext for EQ control from main thread
+static TapContext *g_tapContext = NULL;
+
+@interface QobuzAudioPlugin (CAPPluginCategory) <CAPBridgedPlugin>
+@end
+
+@implementation QobuzAudioPlugin (CAPPluginCategory)
+- (NSString *)identifier { return @"QobuzAudioPlugin"; }
+- (NSString *)jsName { return @"QobuzAudio"; }
+- (NSArray *)pluginMethods {
+    NSMutableArray *methods = [NSMutableArray new];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"play" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"pause" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"resume" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"seek" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"updateMetadata" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setupRemoteControls" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"embedLyrics" returnType:CAPPluginReturnPromise]];
+    // EQ Methods
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQEnabled" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQBand" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQPreset" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"getEQState" returnType:CAPPluginReturnPromise]];
+    return methods;
+}
+@end
 
 // MTAudioProcessingTap callbacks
 static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapStorageOut) {
