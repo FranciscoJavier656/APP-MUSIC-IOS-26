@@ -64,7 +64,7 @@ export default function MiniPlayer() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className={`absolute left-3 right-3 z-40 bottom-[calc(105px+env(safe-area-inset-bottom))]`}
+            className={`absolute left-3 right-3 z-40 ${isNative ? 'bottom-[calc(75px+env(safe-area-inset-bottom))]' : 'bottom-[calc(110px+env(safe-area-inset-bottom))]'}`}
           >
             <motion.div 
               className="cursor-pointer touch-none relative rounded-[20px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.4)] group"
