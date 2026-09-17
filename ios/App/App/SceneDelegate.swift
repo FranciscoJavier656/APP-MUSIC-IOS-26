@@ -67,6 +67,7 @@ struct HybridRootView: View {
             Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: .home) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
+                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
                     .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
@@ -74,6 +75,7 @@ struct HybridRootView: View {
             Tab(value: .search, role: .search) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
+                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
                     .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
@@ -81,6 +83,7 @@ struct HybridRootView: View {
             Tab(AppTab.library.title, systemImage: AppTab.library.systemImage, value: .library) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
+                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
                     .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
@@ -88,6 +91,7 @@ struct HybridRootView: View {
             Tab(AppTab.downloads.title, systemImage: AppTab.downloads.systemImage, value: .downloads) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
+                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
                     .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
             
@@ -95,11 +99,11 @@ struct HybridRootView: View {
             Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: .settings) {
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
+                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
                     .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
             }
         }
-        // ── Minimize tab bar on scroll (WWDC 2025: 5:07) ──
-        .tabBarMinimizeBehavior(.onScrollDown)
+        // Removed tabBarMinimizeBehavior because it conflicts with manual toolbarVisibility without a native ScrollView
         // ── Tab bar accessory for mini player (WWDC 2025: 5:39) ──
         .tabViewBottomAccessory {
             if hasTrack {
@@ -136,9 +140,9 @@ struct HybridRootView: View {
         // ── Notification listeners for WebView ↔ Native sync ──
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ToggleTabBar"))) { notification in
             if let hidden = notification.userInfo?["hidden"] as? Bool {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    isTabBarHidden = hidden
-                }
+                // Do not use withAnimation here. SwiftUI iOS 18 TabView toolbarVisibility handles its own animation natively.
+                // Wrapping it in withAnimation breaks the transition and causes the tab bar to stay visible.
+                isTabBarHidden = hidden
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenNativeZoom"))) { _ in
