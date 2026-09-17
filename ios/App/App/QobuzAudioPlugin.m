@@ -9,6 +9,8 @@
 #import <MediaToolbox/MediaToolbox.h>
 #import <Accelerate/Accelerate.h>
 #include <sys/xattr.h>
+#include <math.h>
+#include <string.h>
 
 #define FFT_SIZE 1024
 #define NUM_BINS 64
@@ -291,7 +293,7 @@ static void tapPrepare(MTAudioProcessingTapRef tap, CMItemCount maxFrames, const
     TapContext *context = (TapContext *)MTAudioProcessingTapGetStorage(tap);
     if (context && processingFormat) {
         context->sampleRate = (float)processingFormat->mSampleRate;
-        context->numChannels = MIN((int)processingFormat->mChannelsPerFrame, EQ_MAX_CHANNELS);
+        context->numChannels = ((int)processingFormat->mChannelsPerFrame < EQ_MAX_CHANNELS) ? (int)processingFormat->mChannelsPerFrame : EQ_MAX_CHANNELS;
         context->isNonInterleaved = (processingFormat->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0;
         
         // Recalculate EQ coefficients with actual sample rate safely
@@ -318,7 +320,8 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         
         if (context->isNonInterleaved) {
             // Non-interleaved: One buffer per channel, numberFrames samples per buffer
-            for (int ch = 0; ch < MIN((int)bufferListInOut->mNumberBuffers, numCh); ch++) {
+            int maxCh = ((int)bufferListInOut->mNumberBuffers < numCh) ? (int)bufferListInOut->mNumberBuffers : numCh;
+            for (int ch = 0; ch < maxCh; ch++) {
                 float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
                 if (!channelData) continue;
                 
@@ -348,7 +351,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 
                 // Safety soft/hard clip per channel to prevent digital distortion overflow
                 for (UInt32 n = 0; n < numberFrames; n++) {
-                    channelData[n] = MAX(-1.0f, MIN(1.0f, channelData[n]));
+                    channelData[n] = fmaxf(-1.0f, fminf(1.0f, channelData[n]));
                 }
             }
         } else {
@@ -387,7 +390,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 // Safety clip for interleaved data
                 UInt32 totalSamples = numberFrames * numCh;
                 for (UInt32 i = 0; i < totalSamples; i++) {
-                    interleavedData[i] = MAX(-1.0f, MIN(1.0f, interleavedData[i]));
+                    interleavedData[i] = fmaxf(-1.0f, fminf(1.0f, interleavedData[i]));
                 }
             }
         }
@@ -436,7 +439,9 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         float freqBoost = 1.0 + ((float)i / (float)NUM_BINS) * 4.0;
         float val = maxVal * 25.0 * freqBoost; // tuned multiplier
         
-        int scaled = MIN(MAX((int)(val * 255.0), 0), 255);
+        int scaled = (int)(val * 255.0);
+        if (scaled < 0) scaled = 0;
+        if (scaled > 255) scaled = 255;
         [result addObject:@(scaled)];
     }
     
@@ -831,7 +836,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     }
     
     // Clamp gain to ±12 dB
-    gain = MAX(-12.0f, MIN(12.0f, gain));
+    gain = fmaxf(-12.0f, fminf(12.0f, gain));
     
     @synchronized ([QobuzAudioPlugin class]) {
         if (g_tapContext) {
