@@ -4,9 +4,33 @@ import Capacitor
 @objc(LiquidTabBarPlugin)
 public class LiquidTabBarPlugin: CAPPlugin {
     
+    private func forceHideUIKitTabBar(hidden: Bool) {
+        DispatchQueue.main.async {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let window = windowScene.windows.first else { return }
+            
+            func traverse(view: UIView) {
+                let typeName = String(describing: type(of: view))
+                if typeName.contains("TabBar") || typeName.contains("Fluid") {
+                    // Don't hide the main view, only tab bar related views
+                    if !typeName.contains("ViewRoot") && !typeName.contains("Hosting") {
+                        view.isHidden = hidden
+                        view.alpha = hidden ? 0 : 1
+                        view.isUserInteractionEnabled = !hidden
+                    }
+                }
+                for subview in view.subviews {
+                    traverse(view: subview)
+                }
+            }
+            traverse(view: window)
+        }
+    }
+
     /// Show or hide the native tab bar
     @objc func setHidden(_ call: CAPPluginCall) {
         let isHidden = call.getBool("hidden") ?? false
+        forceHideUIKitTabBar(hidden: isHidden)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": isHidden])
         }
@@ -14,6 +38,7 @@ public class LiquidTabBarPlugin: CAPPlugin {
     }
 
     @objc func hide(_ call: CAPPluginCall) {
+        forceHideUIKitTabBar(hidden: true)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": true])
         }
@@ -21,6 +46,7 @@ public class LiquidTabBarPlugin: CAPPlugin {
     }
 
     @objc func show(_ call: CAPPluginCall) {
+        forceHideUIKitTabBar(hidden: false)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": false])
         }
