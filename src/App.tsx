@@ -125,13 +125,23 @@ function AppContent() {
         setActiveTab(e.detail);
       }
     };
+    const handleHide = () => {
+      if (useNativeTabBar && LiquidTabBarNative) LiquidTabBarNative.setHidden({ hidden: true });
+    };
+    const handleShow = () => {
+      if (useNativeTabBar && LiquidTabBarNative) LiquidTabBarNative.setHidden({ hidden: false });
+    };
     window.addEventListener('navigate', handleNavigate);
     document.addEventListener('navigate', handleNavigate);
+    window.addEventListener('tabbar:hide', handleHide);
+    window.addEventListener('tabbar:show', handleShow);
     return () => {
       window.removeEventListener('navigate', handleNavigate);
       document.removeEventListener('navigate', handleNavigate);
+      window.removeEventListener('tabbar:hide', handleHide);
+      window.removeEventListener('tabbar:show', handleShow);
     };
-  }, []);
+  }, [useNativeTabBar]);
 
   
   const [isDarkMode, setIsDarkMode] = useState(() => {

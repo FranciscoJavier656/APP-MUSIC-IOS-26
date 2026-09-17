@@ -58,9 +58,7 @@ export default function MiniPlayer() {
   return (
     <>
       <AnimatePresence>
-        {/* On native iOS 26, the floating mini player is replaced by the native TabView bottom accessory.
-            We only show the React mini player on web or when native is unavailable. */}
-        {currentTrack && !isExpanded && !isNative && (
+        {currentTrack && !isExpanded && (
           <motion.div 
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: isExpanded ? 50 : 0, opacity: isExpanded ? 0 : 1 }}
@@ -74,7 +72,7 @@ export default function MiniPlayer() {
               dragConstraints={{ left: 0, right: 0 }}
               dragElastic={0.2}
               onDragEnd={(_, info) => {
-                if (info.offset.x = 80) {
+                if (info.offset.x >= 80) {
                   prevTrack();
                 } else if (info.offset.x < -80) {
                   nextTrack();

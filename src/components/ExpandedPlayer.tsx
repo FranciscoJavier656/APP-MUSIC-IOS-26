@@ -36,6 +36,14 @@ export default function ExpandedPlayer() {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  useEffect(() => {
+    if (isExpanded) {
+      window.dispatchEvent(new CustomEvent('tabbar:hide'));
+    } else {
+      window.dispatchEvent(new CustomEvent('tabbar:show'));
+    }
+  }, [isExpanded]);
+
   const setIsScrubbing = (val: boolean) => {
     isScrubbingRef.current = val;
     if (!containerRef.current) return;
