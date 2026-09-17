@@ -129,6 +129,13 @@ function AppContent() {
       }
     };
     const handleHide = () => {
+      // DIRECT OVERRIDE: Bypass Capacitor for instant iOS 26 UI hide
+      try {
+        if ((window as any).webkit?.messageHandlers?.LiquidTabBarDirect) {
+          (window as any).webkit.messageHandlers.LiquidTabBarDirect.postMessage("hide");
+        }
+      } catch (e) {}
+
       if (LiquidTabBarNative) {
         LiquidTabBarNative.setHidden({ hidden: true }).catch(() => {});
         if (LiquidTabBarNative.hide) LiquidTabBarNative.hide().catch(() => {});
@@ -136,6 +143,14 @@ function AppContent() {
     };
     const handleShow = () => {
       if ((window as any).isPlayerExpanded || globalOverlayRef.current) return;
+      
+      // DIRECT OVERRIDE: Bypass Capacitor for instant iOS 26 UI show
+      try {
+        if ((window as any).webkit?.messageHandlers?.LiquidTabBarDirect) {
+          (window as any).webkit.messageHandlers.LiquidTabBarDirect.postMessage("show");
+        }
+      } catch (e) {}
+
       if (LiquidTabBarNative) {
         LiquidTabBarNative.setHidden({ hidden: false }).catch(() => {});
         if (LiquidTabBarNative.show) LiquidTabBarNative.show().catch(() => {});
@@ -162,12 +177,30 @@ function AppContent() {
     if (globalOverlay) {
       window.dispatchEvent(new CustomEvent('tabbar:hide'));
       document.dispatchEvent(new CustomEvent('tabbar:hide'));
-      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: true }); if (lt.hide) lt.hide(); } } catch(e){}
+      try { 
+        if (Capacitor.isNativePlatform()) { 
+          const lt = registerPlugin('LiquidTabBar'); 
+          lt.setHidden({ hidden: true }); 
+          if (lt.hide) lt.hide(); 
+          if ((window as any).webkit?.messageHandlers?.LiquidTabBarDirect) {
+            (window as any).webkit.messageHandlers.LiquidTabBarDirect.postMessage("hide");
+          }
+        } 
+      } catch(e){}
     } else {
       if ((window as any).isPlayerExpanded) return;
       window.dispatchEvent(new CustomEvent('tabbar:show'));
       document.dispatchEvent(new CustomEvent('tabbar:show'));
-      try { if (Capacitor.isNativePlatform()) { const lt = registerPlugin('LiquidTabBar'); lt.setHidden({ hidden: false }); if (lt.show) lt.show(); } } catch(e){}
+      try { 
+        if (Capacitor.isNativePlatform()) { 
+          const lt = registerPlugin('LiquidTabBar'); 
+          lt.setHidden({ hidden: false }); 
+          if (lt.show) lt.show(); 
+          if ((window as any).webkit?.messageHandlers?.LiquidTabBarDirect) {
+            (window as any).webkit.messageHandlers.LiquidTabBarDirect.postMessage("show");
+          }
+        } 
+      } catch(e){}
     }
   }, [globalOverlay]);
 
