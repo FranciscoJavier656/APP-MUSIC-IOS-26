@@ -62,68 +62,65 @@ struct HybridRootView: View {
     @State private var hasTrack = false
     
     var body: some View {
-        TabView(selection: $selectedTab) {
-            // ── Home Tab ──
-            Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: .home) {
+        Group {
+            if isTabBarHidden {
+                // When the React ExpandedPlayer is open, we COMPLETELY DESTROY the native TabView.
+                // This is required in iOS 26 because the Liquid Glass Tab Bar renders at the window level
+                // and cannot be hidden by internal tab content.
                 CapacitorBridgeView(bridgeVC: bridgeVC)
                     .ignoresSafeArea()
-                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
-            }
-            
-            // ── Search Tab (native search role from WWDC 2025) ──
-            Tab(value: .search, role: .search) {
-                CapacitorBridgeView(bridgeVC: bridgeVC)
-                    .ignoresSafeArea()
-                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
-            }
-            
-            // ── Library Tab ──
-            Tab(AppTab.library.title, systemImage: AppTab.library.systemImage, value: .library) {
-                CapacitorBridgeView(bridgeVC: bridgeVC)
-                    .ignoresSafeArea()
-                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
-            }
-            
-            // ── Downloads Tab ──
-            Tab(AppTab.downloads.title, systemImage: AppTab.downloads.systemImage, value: .downloads) {
-                CapacitorBridgeView(bridgeVC: bridgeVC)
-                    .ignoresSafeArea()
-                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
-            }
-            
-            // ── Settings Tab ──
-            Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: .settings) {
-                CapacitorBridgeView(bridgeVC: bridgeVC)
-                    .ignoresSafeArea()
-                    .padding(.bottom, isTabBarHidden ? 0 : 0.0001)
-                    .toolbarVisibility(isTabBarHidden ? .hidden : .visible, for: .tabBar)
-            }
-        }
-        // Removed tabBarMinimizeBehavior because it conflicts with manual toolbarVisibility without a native ScrollView
-        // ── Tab bar accessory for mini player (WWDC 2025: 5:39) ──
-        .tabViewBottomAccessory {
-            // Only show the native mini player when the Tab Bar is visible
-            // This prevents it from overlapping the React ExpandedPlayer
-            if hasTrack && !isTabBarHidden {
-                MusicPlaybackAccessory(
-                    trackTitle: currentTrackTitle,
-                    artistName: currentTrackArtist,
-                    isPlaying: isPlaying,
-                    onPlayPause: {
-                        bridgeVC.webView?.evaluateJavaScript(
-                            "document.dispatchEvent(new CustomEvent('native-toggle-play'))"
-                        )
-                    },
-                    onTap: {
-                        bridgeVC.webView?.evaluateJavaScript(
-                            "document.dispatchEvent(new CustomEvent('native-expand-player'))"
+            } else {
+                TabView(selection: $selectedTab) {
+                    // ── Home Tab ──
+                    Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: .home) {
+                        CapacitorBridgeView(bridgeVC: bridgeVC)
+                            .ignoresSafeArea()
+                    }
+                    
+                    // ── Search Tab (native search role from WWDC 2025) ──
+                    Tab(value: .search, role: .search) {
+                        CapacitorBridgeView(bridgeVC: bridgeVC)
+                            .ignoresSafeArea()
+                    }
+                    
+                    // ── Library Tab ──
+                    Tab(AppTab.library.title, systemImage: AppTab.library.systemImage, value: .library) {
+                        CapacitorBridgeView(bridgeVC: bridgeVC)
+                            .ignoresSafeArea()
+                    }
+                    
+                    // ── Downloads Tab ──
+                    Tab(AppTab.downloads.title, systemImage: AppTab.downloads.systemImage, value: .downloads) {
+                        CapacitorBridgeView(bridgeVC: bridgeVC)
+                            .ignoresSafeArea()
+                    }
+                    
+                    // ── Settings Tab ──
+                    Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: .settings) {
+                        CapacitorBridgeView(bridgeVC: bridgeVC)
+                            .ignoresSafeArea()
+                    }
+                }
+                // ── Tab bar accessory for mini player (WWDC 2025: 5:39) ──
+                .tabViewBottomAccessory {
+                    if hasTrack {
+                        MusicPlaybackAccessory(
+                            trackTitle: currentTrackTitle,
+                            artistName: currentTrackArtist,
+                            isPlaying: isPlaying,
+                            onPlayPause: {
+                                bridgeVC.webView?.evaluateJavaScript(
+                                    "document.dispatchEvent(new CustomEvent('native-toggle-play'))"
+                                )
+                            },
+                            onTap: {
+                                bridgeVC.webView?.evaluateJavaScript(
+                                    "document.dispatchEvent(new CustomEvent('native-expand-player'))"
+                                )
+                            }
                         )
                     }
-                )
+                }
             }
         }
         .onChange(of: selectedTab) { oldValue, newValue in
