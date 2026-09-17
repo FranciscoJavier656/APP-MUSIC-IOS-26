@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column; }
+  .header { height: 100px; background: #eee; }
+  .footer { height: 200px; background: #eee; }
+  .flex-1 { 
+    flex: 1; 
+    min-height: 0; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    background: #ccc;
+  }
+  .square {
+    width: 100%;
+    max-width: 320px;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    max-height: 100%;
+    background: red;
+  }
+</style>
+</head>
+<body>
+  <div class="header">Header</div>
+  <div class="flex-1">
+    <div class="square"></div>
+  </div>
+  <div class="footer">Footer</div>
+</body>
+</html>
