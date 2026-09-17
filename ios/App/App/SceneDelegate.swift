@@ -106,7 +106,9 @@ struct HybridRootView: View {
         // Removed tabBarMinimizeBehavior because it conflicts with manual toolbarVisibility without a native ScrollView
         // ── Tab bar accessory for mini player (WWDC 2025: 5:39) ──
         .tabViewBottomAccessory {
-            if hasTrack {
+            // Only show the native mini player when the Tab Bar is visible
+            // This prevents it from overlapping the React ExpandedPlayer
+            if hasTrack && !isTabBarHidden {
                 MusicPlaybackAccessory(
                     trackTitle: currentTrackTitle,
                     artistName: currentTrackArtist,
