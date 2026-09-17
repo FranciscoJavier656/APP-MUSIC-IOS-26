@@ -5,21 +5,47 @@ import Capacitor
 public class LiquidTabBarPlugin: CAPPlugin {
     
     /// Show or hide the native tab bar
+    private func forceHideUIKitTabBar(hidden: Bool) {
+        DispatchQueue.main.async {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let window = windowScene.windows.first else { return }
+            
+            func traverse(view: UIView) {
+                let typeName = String(describing: type(of: view))
+                // iOS 26 Liquid Glass uses _UIFluidTabBar or similar classes.
+                if typeName.contains("TabBar") || typeName.contains("Fluid") || typeName.contains("Accessory") {
+                    // Do NOT hide the main Capacitor view or the root hosting view.
+                    // But DO hide internal hosting views inside the tab bar hierarchy!
+                    if !typeName.contains("CAPBridge") && !typeName.contains("WKWebView") && !typeName.contains("HybridRoot") {
+                        // If it's a structural view, hiding it is safe.
+                        // We check for specific internal iOS 26 names.
+                        if typeName.contains("_UIFluid") || typeName.contains("UITabBar") || typeName.contains("BottomAccessory") || typeName.contains("TabBar") {
+                            view.isHidden = hidden
+                            view.alpha = hidden ? 0 : 1
+                            view.isUserInteractionEnabled = !hidden
+                        }
+                    }
+                }
+                for subview in view.subviews {
+                    traverse(view: subview)
+                }
+            }
+            traverse(view: window)
+        }
+    }
+
+    /// Show or hide the native tab bar
     @objc func setHidden(_ call: CAPPluginCall) {
         let isHidden = call.getBool("hidden") ?? false
+        forceHideUIKitTabBar(hidden: isHidden)
         DispatchQueue.main.async {
-            // FIRE AN ALERT TO PROVE WE ARE HERE
-            let alert = UIAlertController(title: "DEBUG", message: "setHidden CALLED! hidden: \(isHidden)", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            if let rootVC = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first?.rootViewController }).first {
-                rootVC.present(alert, animated: true)
-            }
             NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": isHidden])
         }
         call.resolve()
     }
 
     @objc func hide(_ call: CAPPluginCall) {
+        forceHideUIKitTabBar(hidden: true)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": true])
         }
@@ -27,6 +53,7 @@ public class LiquidTabBarPlugin: CAPPlugin {
     }
 
     @objc func show(_ call: CAPPluginCall) {
+        forceHideUIKitTabBar(hidden: false)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: NSNotification.Name("ToggleTabBar"), object: nil, userInfo: ["hidden": false])
         }
