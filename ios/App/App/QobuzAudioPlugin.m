@@ -55,18 +55,19 @@ typedef struct {
     // ── EQ Biquad State ──
     // vDSP_deq22 coefficients: [b0, b1, b2, a1, a2] per band
     // Double-buffered for lock-free coefficient updates from main thread
-    float eqCoeffs[2][EQ_NUM_BANDS][5];
+    double eqCoeffs[2][EQ_NUM_BANDS][5];
     volatile int activeCoeffBuffer;         // 0 or 1, read by audio thread
     
     // Per-channel delay line state for each biquad band: [z-1, z-2]
     // Using Direct Form II Transposed for numerical stability
-    float eqDelayState[EQ_MAX_CHANNELS][EQ_NUM_BANDS][2];
+    double eqDelayState[EQ_MAX_CHANNELS][EQ_NUM_BANDS][2];
     
     float eqGains[EQ_NUM_BANDS];            // Gain in dB per band (-12 to +12)
     volatile BOOL eqEnabled;                // Atomic read from audio thread
     float sampleRate;                       // Captured in tapPrepare
     int numChannels;                        // Captured in tapPrepare
     BOOL isNonInterleaved;                  // Captured in tapPrepare
+    float currentAutoGain;                  // For smooth lookahead/auto-gain limiter
 } TapContext;
 
 // Static reference to TapContext for EQ control from main thread
@@ -152,6 +153,7 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
     context->activeCoeffBuffer = 0;
     context->sampleRate = 44100.0f; // Default, overridden in tapPrepare
     context->numChannels = 2;
+    context->currentAutoGain = 1.0f;
     memset(context->eqGains, 0, sizeof(context->eqGains));
     memset(context->eqCoeffs, 0, sizeof(context->eqCoeffs));
     memset(context->eqDelayState, 0, sizeof(context->eqDelayState));
@@ -172,41 +174,19 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
 // ── Biquad Coefficient Calculation (Robert Bristow-Johnson Audio EQ Cookbook) ──
 // Computes normalized coefficients for vDSP_deq22 format: [b0/a0, b1/a0, b2/a0, a1/a0, a2/a0]
 
-static void calcPeakingEQ(float *coeffs, float freq, float gainDB, float Q, float sampleRate) {
-    float A  = powf(10.0f, gainDB / 40.0f);
-    float w0 = 2.0f * M_PI * freq / sampleRate;
-    float sinW0 = sinf(w0);
-    float cosW0 = cosf(w0);
-    float alpha = sinW0 / (2.0f * Q);
+static void calcPeakingEQ(double *coeffs, double freq, double gainDB, double Q, double sampleRate) {
+    double A  = pow(10.0, gainDB / 40.0);
+    double w0 = 2.0 * M_PI * freq / sampleRate;
+    double sinW0 = sin(w0);
+    double cosW0 = cos(w0);
+    double alpha = sinW0 / (2.0 * Q);
     
-    float b0 = 1.0f + alpha * A;
-    float b1 = -2.0f * cosW0;
-    float b2 = 1.0f - alpha * A;
-    float a0 = 1.0f + alpha / A;
-    float a1 = -2.0f * cosW0;
-    float a2 = 1.0f - alpha / A;
-    
-    coeffs[0] = b0 / a0;
-    coeffs[1] = b1 / a0;
-    coeffs[2] = b2 / a0;
-    coeffs[3] = a1 / a0;
-    coeffs[4] = a2 / a0;
-}
-
-static void calcLowShelf(float *coeffs, float freq, float gainDB, float Q, float sampleRate) {
-    float A  = powf(10.0f, gainDB / 40.0f);
-    float w0 = 2.0f * M_PI * freq / sampleRate;
-    float sinW0 = sinf(w0);
-    float cosW0 = cosf(w0);
-    float alpha = sinW0 / (2.0f * Q);
-    float sqrtA2alpha = 2.0f * sqrtf(A) * alpha;
-    
-    float b0 = A * ((A + 1.0f) - (A - 1.0f) * cosW0 + sqrtA2alpha);
-    float b1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosW0);
-    float b2 = A * ((A + 1.0f) - (A - 1.0f) * cosW0 - sqrtA2alpha);
-    float a0 = (A + 1.0f) + (A - 1.0f) * cosW0 + sqrtA2alpha;
-    float a1 = -2.0f * ((A - 1.0f) + (A + 1.0f) * cosW0);
-    float a2 = (A + 1.0f) + (A - 1.0f) * cosW0 - sqrtA2alpha;
+    double b0 = 1.0 + alpha * A;
+    double b1 = -2.0 * cosW0;
+    double b2 = 1.0 - alpha * A;
+    double a0 = 1.0 + alpha / A;
+    double a1 = -2.0 * cosW0;
+    double a2 = 1.0 - alpha / A;
     
     coeffs[0] = b0 / a0;
     coeffs[1] = b1 / a0;
@@ -215,20 +195,42 @@ static void calcLowShelf(float *coeffs, float freq, float gainDB, float Q, float
     coeffs[4] = a2 / a0;
 }
 
-static void calcHighShelf(float *coeffs, float freq, float gainDB, float Q, float sampleRate) {
-    float A  = powf(10.0f, gainDB / 40.0f);
-    float w0 = 2.0f * M_PI * freq / sampleRate;
-    float sinW0 = sinf(w0);
-    float cosW0 = cosf(w0);
-    float alpha = sinW0 / (2.0f * Q);
-    float sqrtA2alpha = 2.0f * sqrtf(A) * alpha;
+static void calcLowShelf(double *coeffs, double freq, double gainDB, double Q, double sampleRate) {
+    double A  = pow(10.0, gainDB / 40.0);
+    double w0 = 2.0 * M_PI * freq / sampleRate;
+    double sinW0 = sin(w0);
+    double cosW0 = cos(w0);
+    double alpha = sinW0 / (2.0 * Q);
+    double sqrtA2alpha = 2.0 * sqrt(A) * alpha;
     
-    float b0 = A * ((A + 1.0f) + (A - 1.0f) * cosW0 + sqrtA2alpha);
-    float b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cosW0);
-    float b2 = A * ((A + 1.0f) + (A - 1.0f) * cosW0 - sqrtA2alpha);
-    float a0 = (A + 1.0f) - (A - 1.0f) * cosW0 + sqrtA2alpha;
-    float a1 = 2.0f * ((A - 1.0f) - (A + 1.0f) * cosW0);
-    float a2 = (A + 1.0f) - (A - 1.0f) * cosW0 - sqrtA2alpha;
+    double b0 = A * ((A + 1.0) - (A - 1.0) * cosW0 + sqrtA2alpha);
+    double b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosW0);
+    double b2 = A * ((A + 1.0) - (A - 1.0) * cosW0 - sqrtA2alpha);
+    double a0 = (A + 1.0) + (A - 1.0) * cosW0 + sqrtA2alpha;
+    double a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosW0);
+    double a2 = (A + 1.0) + (A - 1.0) * cosW0 - sqrtA2alpha;
+    
+    coeffs[0] = b0 / a0;
+    coeffs[1] = b1 / a0;
+    coeffs[2] = b2 / a0;
+    coeffs[3] = a1 / a0;
+    coeffs[4] = a2 / a0;
+}
+
+static void calcHighShelf(double *coeffs, double freq, double gainDB, double Q, double sampleRate) {
+    double A  = pow(10.0, gainDB / 40.0);
+    double w0 = 2.0 * M_PI * freq / sampleRate;
+    double sinW0 = sin(w0);
+    double cosW0 = cos(w0);
+    double alpha = sinW0 / (2.0 * Q);
+    double sqrtA2alpha = 2.0 * sqrt(A) * alpha;
+    
+    double b0 = A * ((A + 1.0) + (A - 1.0) * cosW0 + sqrtA2alpha);
+    double b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosW0);
+    double b2 = A * ((A + 1.0) + (A - 1.0) * cosW0 - sqrtA2alpha);
+    double a0 = (A + 1.0) - (A - 1.0) * cosW0 + sqrtA2alpha;
+    double a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosW0);
+    double a2 = (A + 1.0) - (A - 1.0) * cosW0 - sqrtA2alpha;
     
     coeffs[0] = b0 / a0;
     coeffs[1] = b1 / a0;
@@ -326,32 +328,57 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 if (!channelData) continue;
                 
                 for (int band = 0; band < EQ_NUM_BANDS; band++) {
-                    float *coeffs = context->eqCoeffs[activeBuf][band];
-                    if (coeffs[0] == 1.0f && coeffs[1] == 0.0f && coeffs[2] == 0.0f &&
-                        coeffs[3] == 0.0f && coeffs[4] == 0.0f) continue;
+                    double *coeffs = context->eqCoeffs[activeBuf][band];
+                    if (coeffs[0] == 1.0 && coeffs[1] == 0.0 && coeffs[2] == 0.0 &&
+                        coeffs[3] == 0.0 && coeffs[4] == 0.0) continue;
                     
-                    float b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
-                    float a1 = coeffs[3], a2 = coeffs[4];
-                    float z1 = context->eqDelayState[ch][band][0];
-                    float z2 = context->eqDelayState[ch][band][1];
+                    double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
+                    double a1 = coeffs[3], a2 = coeffs[4];
+                    double z1 = context->eqDelayState[ch][band][0];
+                    double z2 = context->eqDelayState[ch][band][1];
                     
                     for (UInt32 n = 0; n < numberFrames; n++) {
-                        float x = channelData[n];
-                        float y = b0 * x + z1;
+                        double x = channelData[n];
+                        double y = b0 * x + z1;
                         z1 = b1 * x - a1 * y + z2;
                         z2 = b2 * x - a2 * y;
-                        channelData[n] = y;
+                        channelData[n] = (float)y;
                     }
                     
-                    if (fabsf(z1) < 1.0e-15f) z1 = 0.0f;
-                    if (fabsf(z2) < 1.0e-15f) z2 = 0.0f;
+                    if (fabs(z1) < 1.0e-15) z1 = 0.0;
+                    if (fabs(z2) < 1.0e-15) z2 = 0.0;
                     context->eqDelayState[ch][band][0] = z1;
                     context->eqDelayState[ch][band][1] = z2;
                 }
-                
-                // Safety soft/hard clip per channel to prevent digital distortion overflow
-                for (UInt32 n = 0; n < numberFrames; n++) {
-                    channelData[n] = fmaxf(-1.0f, fminf(1.0f, channelData[n]));
+            }
+            
+            // ── Auto-Gain & Soft Clipping (Lookahead limit approximation) ──
+            float maxMag = 0.0f;
+            for (int ch = 0; ch < maxCh; ch++) {
+                float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
+                if (!channelData) continue;
+                float chMax = 0.0f;
+                vDSP_maxmgv(channelData, 1, &chMax, numberFrames);
+                if (chMax > maxMag) maxMag = chMax;
+            }
+            
+            float targetGain = (maxMag > 0.95f) ? (0.95f / maxMag) : 1.0f;
+            float attack = 0.01f;
+            float release = 0.0001f;
+            for (UInt32 n = 0; n < numberFrames; n++) {
+                if (targetGain < context->currentAutoGain) {
+                    context->currentAutoGain += attack * (targetGain - context->currentAutoGain);
+                } else {
+                    context->currentAutoGain += release * (targetGain - context->currentAutoGain);
+                }
+                float currentGain = context->currentAutoGain;
+                for (int ch = 0; ch < maxCh; ch++) {
+                    float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
+                    if (!channelData) continue;
+                    float x = channelData[n] * currentGain;
+                    if (x > 0.95f) x = 0.95f + 0.05f * tanhf((x - 0.95f) * 20.0f);
+                    else if (x < -0.95f) x = -0.95f + 0.05f * tanhf((x + 0.95f) * 20.0f);
+                    channelData[n] = x;
                 }
             }
         } else {
@@ -359,38 +386,57 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
             float *interleavedData = (float *)bufferListInOut->mBuffers[0].mData;
             if (interleavedData) {
                 for (int band = 0; band < EQ_NUM_BANDS; band++) {
-                    float *coeffs = context->eqCoeffs[activeBuf][band];
-                    if (coeffs[0] == 1.0f && coeffs[1] == 0.0f && coeffs[2] == 0.0f &&
-                        coeffs[3] == 0.0f && coeffs[4] == 0.0f) continue;
+                    double *coeffs = context->eqCoeffs[activeBuf][band];
+                    if (coeffs[0] == 1.0 && coeffs[1] == 0.0 && coeffs[2] == 0.0 &&
+                        coeffs[3] == 0.0 && coeffs[4] == 0.0) continue;
                     
-                    float b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
-                    float a1 = coeffs[3], a2 = coeffs[4];
+                    double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
+                    double a1 = coeffs[3], a2 = coeffs[4];
                     
                     // We must process frames, pulling the correct channel sample
                     for (int ch = 0; ch < numCh; ch++) {
-                        float z1 = context->eqDelayState[ch][band][0];
-                        float z2 = context->eqDelayState[ch][band][1];
+                        double z1 = context->eqDelayState[ch][band][0];
+                        double z2 = context->eqDelayState[ch][band][1];
                         
                         for (UInt32 n = 0; n < numberFrames; n++) {
                             int idx = n * numCh + ch;
-                            float x = interleavedData[idx];
-                            float y = b0 * x + z1;
+                            double x = interleavedData[idx];
+                            double y = b0 * x + z1;
                             z1 = b1 * x - a1 * y + z2;
                             z2 = b2 * x - a2 * y;
-                            interleavedData[idx] = y;
+                            interleavedData[idx] = (float)y;
                         }
                         
-                        if (fabsf(z1) < 1.0e-15f) z1 = 0.0f;
-                        if (fabsf(z2) < 1.0e-15f) z2 = 0.0f;
+                        if (fabs(z1) < 1.0e-15) z1 = 0.0;
+                        if (fabs(z2) < 1.0e-15) z2 = 0.0;
                         context->eqDelayState[ch][band][0] = z1;
                         context->eqDelayState[ch][band][1] = z2;
                     }
                 }
                 
-                // Safety clip for interleaved data
+                // ── Auto-Gain & Soft Clipping for Interleaved Data ──
                 UInt32 totalSamples = (UInt32)(numberFrames * numCh);
-                for (UInt32 i = 0; i < totalSamples; i++) {
-                    interleavedData[i] = fmaxf(-1.0f, fminf(1.0f, interleavedData[i]));
+                float maxMag = 0.0f;
+                vDSP_maxmgv(interleavedData, 1, &maxMag, totalSamples);
+                
+                float targetGain = (maxMag > 0.95f) ? (0.95f / maxMag) : 1.0f;
+                float attack = 0.01f;
+                float release = 0.0001f;
+                
+                for (UInt32 n = 0; n < numberFrames; n++) {
+                    if (targetGain < context->currentAutoGain) {
+                        context->currentAutoGain += attack * (targetGain - context->currentAutoGain);
+                    } else {
+                        context->currentAutoGain += release * (targetGain - context->currentAutoGain);
+                    }
+                    float currentGain = context->currentAutoGain;
+                    for (int ch = 0; ch < numCh; ch++) {
+                        int idx = n * numCh + ch;
+                        float x = interleavedData[idx] * currentGain;
+                        if (x > 0.95f) x = 0.95f + 0.05f * tanhf((x - 0.95f) * 20.0f);
+                        else if (x < -0.95f) x = -0.95f + 0.05f * tanhf((x + 0.95f) * 20.0f);
+                        interleavedData[idx] = x;
+                    }
                 }
             }
         }
