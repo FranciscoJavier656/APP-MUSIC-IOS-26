@@ -299,8 +299,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               const activeChild = lyricsContainerRef.current.children[activeIdx] as HTMLElement;
               if (activeChild) {
                   // LERP Parallax Scrolling
-                  const containerHeight = lyricsContainerRef.current.parentElement?.clientHeight || 0;
-                  const targetY = activeChild.offsetTop - (containerHeight / 2) + (activeChild.clientHeight / 2);
+                  const targetY = activeChild.offsetTop + (activeChild.clientHeight / 2);
                   currentScrollY += (targetY - currentScrollY) * 0.08; // Factor de suavidad
                   lyricsContainerRef.current.style.transform = `translateY(${-currentScrollY}px)`;
 
@@ -503,7 +502,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           {/* Back (Lyrics) */}
           <div 
             onClick={() => setShowLyrics(false)}
-            className="absolute inset-0 rounded-3xl overflow-hidden border border-white/20 bg-gray-900 cursor-pointer"
+            className="absolute inset-0 rounded-3xl overflow-hidden border border-white/20 bg-black cursor-pointer"
             style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', pointerEvents: showLyrics ? 'auto' : 'none' }}
           >
             {/* Blurred background */}
