@@ -322,9 +322,6 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               if (activeChild) {
                   // LERP Parallax Scrolling or Manual Override
                   let targetY = activeChild.offsetTop + (activeChild.clientHeight / 2);
-                  if (lyricsContainerRef.current && lyricsContainerRef.current.parentElement) {
-                      targetY -= lyricsContainerRef.current.parentElement.clientHeight / 2;
-                  }
                   
                   if (!isManualScrollingRef.current) {
                       if (Math.abs(targetY - currentScrollYRef.current) > 350) {
