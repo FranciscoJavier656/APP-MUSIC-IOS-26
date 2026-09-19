@@ -1001,7 +1001,16 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         picker.activeTintColor = [UIColor systemBlueColor];
         picker.hidden = YES;
         
-        UIWindow *window = UIApplication.sharedApplication.windows.firstObject;
+        UIWindow *window = nil;
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                window = ((UIWindowScene *)scene).windows.firstObject;
+                break;
+            }
+        }
+        if (!window) {
+            window = UIApplication.sharedApplication.keyWindow;
+        }
         if (!window) {
             [call reject:@"No window found"];
             return;
@@ -1025,11 +1034,3 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 }
 
 @end
-
-// --- LIQUID TAB BAR PLUGIN REGISTRATION ---
-// Appended to this compiled .m file to ensure registration occurs
-
-CAP_PLUGIN(LiquidTabBarPlugin, "LiquidTabBar",
-    CAP_PLUGIN_METHOD(initializeTabBar, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(updateTab, CAPPluginReturnPromise);
-)
