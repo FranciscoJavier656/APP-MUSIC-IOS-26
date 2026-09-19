@@ -93,6 +93,7 @@ static TapContext *g_tapContext = NULL;
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQBand" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQPreset" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"getEQState" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"showAirPlayPicker" returnType:CAPPluginReturnPromise]];
     return methods;
 }
 @end
@@ -991,6 +992,33 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         [[NSUserDefaults standardUserDefaults] setObject:gains forKey:@"eq_gains"];
         [[NSUserDefaults standardUserDefaults] synchronize];
     }
+- (void)showAirPlayPicker:(CAPPluginCall *)call {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        AVRoutePickerView *picker = [[AVRoutePickerView alloc] initWithFrame:CGRectMake(0, 0, 0, 0)];
+        picker.activeTintColor = [UIColor systemBlueColor];
+        picker.hidden = YES;
+        
+        UIWindow *window = UIApplication.sharedApplication.windows.firstObject;
+        if (!window) {
+            [call reject:@"No window found"];
+            return;
+        }
+        [window addSubview:picker];
+        
+        for (UIView *subview in picker.subviews) {
+            if ([subview isKindOfClass:[UIButton class]]) {
+                UIButton *button = (UIButton *)subview;
+                [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+                break;
+            }
+        }
+        
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [picker removeFromSuperview];
+        });
+        
+        [call resolve];
+    });
 }
 
 @end

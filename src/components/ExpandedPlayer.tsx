@@ -61,6 +61,20 @@ export default function ExpandedPlayer() {
      }
   };
   
+  const handleAirPlayClick = async (e: React.MouseEvent) => {
+     e.stopPropagation();
+     try {
+       if (Capacitor.isNativePlatform()) {
+         const QobuzNative = registerPlugin('QobuzAudio');
+         await QobuzNative.showAirPlayPicker();
+       } else {
+         alert("AirPlay no está disponible en la web.");
+       }
+     } catch (err) {
+       console.error("AirPlay error:", err);
+     }
+  };
+  
   // Swipe gesture state
   const [touchStartY, setTouchStartY] = useState(0);
   const [touchOffsetY, setTouchOffsetY] = useState(0);
@@ -203,6 +217,12 @@ export default function ExpandedPlayer() {
             >
               <Heart className={`w-5 h-5 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-black dark:text-white'}`} />
             </motion.button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setContextMenuTrack({ item: currentTrack, type: 'track' }); }}
+              className="w-10 h-10 flex-shrink-0 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center text-black dark:text-white hover:bg-black/10 dark:hover:bg-white/20 transition-colors"
+            >
+              <MoreHorizontal className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
@@ -214,7 +234,7 @@ export default function ExpandedPlayer() {
         
         {/* Secondary Controls (Bottom) */}
         <div className="flex items-center justify-between px-6 sm:px-10 mt-6">
-           <button className="flex flex-col items-center gap-1.5 text-black/40 dark:text-white/40 hover:text-black/80 dark:hover:text-white/80 transition-colors">
+           <button onClick={handleAirPlayClick} className="flex flex-col items-center gap-1.5 text-black/40 dark:text-white/40 hover:text-black/80 dark:hover:text-white/80 transition-colors">
               <Cast className="w-5 h-5" />
               <span className="text-[10px] font-semibold tracking-wider">AIRPLAY</span>
            </button>
