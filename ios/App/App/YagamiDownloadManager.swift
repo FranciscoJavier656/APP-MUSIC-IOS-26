@@ -8,10 +8,10 @@ public class YagamiDownloadManager: CAPPlugin, URLSessionDownloadDelegate {
     
     private var downloadSession: URLSession!
     private var activeDownloads: [Int: String] = [:] // TaskID -> TrackID
+    private var resumeDataDict: [String: Data] = [:] // TrackID -> ResumeData
     
     override public func load() {
-        // Use default configuration instead of background to avoid background session conflicts during hot reloads
-        let config = URLSessionConfiguration.default
+        let config = URLSessionConfiguration.background(withIdentifier: "com.yagami.downloads")
         self.downloadSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
@@ -24,7 +24,14 @@ public class YagamiDownloadManager: CAPPlugin, URLSessionDownloadDelegate {
         }
         
         let format = call.getString("format") ?? "flac"
-        let downloadTask = downloadSession.downloadTask(with: url)
+        
+        let downloadTask: URLSessionDownloadTask
+        if let resumeData = resumeDataDict[trackId] {
+            downloadTask = downloadSession.downloadTask(withResumeData: resumeData)
+            resumeDataDict.removeValue(forKey: trackId)
+        } else {
+            downloadTask = downloadSession.downloadTask(with: url)
+        }
         
         let metadata = [
             "title": call.getString("title") ?? "Unknown",
@@ -52,7 +59,16 @@ public class YagamiDownloadManager: CAPPlugin, URLSessionDownloadDelegate {
     }
     
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let trackId = activeDownloads[downloadTask.taskIdentifier] else { return }
+        var currentTrackId = activeDownloads[downloadTask.taskIdentifier]
+        if currentTrackId == nil, let description = downloadTask.taskDescription,
+           let data = description.data(using: .utf8),
+           let metadata = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+           let trackId = metadata["trackId"] {
+            currentTrackId = trackId
+            activeDownloads[downloadTask.taskIdentifier] = trackId
+        }
+        
+        guard let trackId = currentTrackId else { return }
         
         var progress: Double = 0.0
         if totalBytesExpectedToWrite > 0 {
@@ -113,16 +129,39 @@ public class YagamiDownloadManager: CAPPlugin, URLSessionDownloadDelegate {
             ])
         }
         activeDownloads.removeValue(forKey: downloadTask.taskIdentifier)
+        resumeDataDict.removeValue(forKey: trackId)
     }
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
-            if let trackId = activeDownloads[task.taskIdentifier] {
+            let nsError = error as NSError
+            var currentTrackId = activeDownloads[task.taskIdentifier]
+            
+            if currentTrackId == nil, let description = task.taskDescription,
+               let data = description.data(using: .utf8),
+               let metadata = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                currentTrackId = metadata["trackId"]
+            }
+            
+            if let trackId = currentTrackId {
+                if let resumeData = nsError.userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
+                    resumeDataDict[trackId] = resumeData
+                }
+                
                 self.notifyListeners("onDownloadError", data: [
                     "trackId": trackId,
                     "error": error.localizedDescription
                 ])
                 activeDownloads.removeValue(forKey: task.taskIdentifier)
+            }
+        }
+    }
+    
+    public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        DispatchQueue.main.async {
+            if let completionHandler = YagamiBackgroundSessionManager.shared.completionHandler {
+                YagamiBackgroundSessionManager.shared.completionHandler = nil
+                completionHandler()
             }
         }
     }
@@ -143,7 +182,6 @@ public class YagamiDownloadManager: CAPPlugin, URLSessionDownloadDelegate {
                     return
                 }
                 
-                // 1x1 resize to get average color quickly (iOS hardware accelerated)
                 let colorSpace = CGColorSpaceCreateDeviceRGB()
                 var bitmap = [UInt8](repeating: 0, count: 4)
                 guard let context = CGContext(data: &bitmap, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
@@ -165,7 +203,6 @@ public class YagamiDownloadManager: CAPPlugin, URLSessionDownloadDelegate {
                 var alpha: CGFloat = 0
                 
                 if color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha) {
-                    // Apple's Dynamic Island vibrant rule: boost saturation aggressively, enforce minimum brightness
                     let vibrantSat = min(saturation * 1.6, 1.0)
                     let vibrantBri = max(min(brightness * 1.3, 1.0), 0.4) 
                     

@@ -1,0 +1,24 @@
+{
+  "appId": "com.capacitorjs.testshostapp",
+  "appName": "testshostapp",
+  "npmClient": "npm",
+  "webDir": "build",
+  "overrideUserAgent": "level 1 override",
+  "appendUserAgent": "level 1 append",
+  "backgroundColor": "#ffffff",
+  "loggingBehavior": "none",
+  "ios": {
+    "overrideUserAgent": "level 2 override",
+  	"appendUserAgent": "level 2 append",
+  	"backgroundColor": "#000000",
+  	"allowsLinkPreview": false,
+  	"scrollEnabled": false,
+  	"contentInset": "scrollableAxes"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0
+    }
+  },
+  "cordova": {}
+}

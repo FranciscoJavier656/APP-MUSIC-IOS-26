@@ -1,0 +1,349 @@
+import { ensureSymlink, pathExists, existsSync, readFileSync, writeFileSync, remove, move, mkdtemp } from 'fs-extra';
+import { tmpdir } from 'os';
+import { join, relative, resolve } from 'path';
+import type { PlistObject } from 'plist';
+import { build, parse } from 'plist';
+import { extract } from 'tar';
+
+import { getCapacitorPackageVersion } from '../common';
+import type { Config } from '../definitions';
+import { fatal } from '../errors';
+import { getMajoriOSVersion } from '../ios/common';
+import { logger } from '../log';
+import type { Plugin } from '../plugin';
+import { getPlatformElement, getPluginPlatform, getPluginType, PluginType } from '../plugin';
+import { convertToUnixPath } from '../util/fs';
+import { runCommand } from '../util/subprocess';
+
+export interface SwiftPlugin {
+  name: string;
+  path: string;
+}
+
+/**
+ * @deprecated use config.ios.packageManager
+ * @param config
+ * @returns 'Cocoapods' | 'SPM'
+ */
+export async function checkPackageManager(config: Config): Promise<'Cocoapods' | 'SPM'> {
+  const iosDirectory = config.ios.nativeProjectDirAbs;
+  if (existsSync(resolve(iosDirectory, 'CapApp-SPM'))) {
+    return 'SPM';
+  }
+
+  return 'Cocoapods';
+}
+
+export async function findPackageSwiftFile(config: Config): Promise<string> {
+  const packageDirectory = resolve(config.ios.nativeProjectDirAbs, 'CapApp-SPM');
+  return resolve(packageDirectory, 'Package.swift');
+}
+
+export async function generatePackageFile(config: Config, plugins: Plugin[]): Promise<void> {
+  const packageSwiftFile = await findPackageSwiftFile(config);
+  try {
+    logger.info('Writing Package.swift');
+
+    const textToWrite = await generatePackageText(config, plugins);
+    writeFileSync(packageSwiftFile, textToWrite);
+  } catch (err) {
+    logger.error(`Unable to write to ${packageSwiftFile}. Verify it is not already open. \n Error: ${err}`);
+  }
+}
+
+export async function checkPluginsForPackageSwift(config: Config, plugins: Plugin[]): Promise<Plugin[]> {
+  const iOSCapacitorPlugins = plugins.filter((p) => getPluginType(p, 'ios') === PluginType.Core);
+  const packageSwiftPluginList = await pluginsWithPackageSwift(iOSCapacitorPlugins);
+
+  if (iOSCapacitorPlugins.length == packageSwiftPluginList.length) {
+    logger.debug(
+      `Found ${iOSCapacitorPlugins.length} Capacitor iOS plugins, ${packageSwiftPluginList.length} have a Package.swift file`,
+    );
+    logger.info('All Capacitor plugins have a Package.swift file and will be included in Package.swift');
+  } else {
+    logger.warn('Some installed Capacitor plugins are not compatible with SPM');
+  }
+
+  return packageSwiftPluginList;
+}
+
+export async function extractSPMPackageDirectory(config: Config): Promise<void> {
+  const spmDirectory = join(config.ios.nativeProjectDirAbs, 'CapApp-SPM');
+  const spmTemplate = join(config.cli.assetsDirAbs, 'ios-spm-template.tar.gz');
+  const debugConfig = join(config.ios.platformDirAbs, 'debug.xcconfig');
+
+  logger.info('Extracting ' + spmTemplate + ' to ' + spmDirectory);
+
+  try {
+    const tempCapDir = await mkdtemp(join(tmpdir(), 'cap-'));
+    const tempCapSPM = join(tempCapDir, 'App', 'CapApp-SPM');
+    const tempDebugXCConfig = join(tempCapDir, 'debug.xcconfig');
+    await extract({ file: spmTemplate, cwd: tempCapDir });
+    await move(tempCapSPM, spmDirectory);
+    await move(tempDebugXCConfig, debugConfig);
+  } catch (err) {
+    fatal('Failed to create ' + spmDirectory + ' with error: ' + err);
+  }
+}
+
+export async function removeCocoapodsFiles(config: Config): Promise<void> {
+  const iosDirectory = config.ios.nativeProjectDirAbs;
+  const podFile = resolve(iosDirectory, 'Podfile');
+  const podlockFile = resolve(iosDirectory, 'Podfile.lock');
+  const xcworkspaceFile = resolve(iosDirectory, 'App.xcworkspace');
+
+  await remove(podFile);
+  await remove(podlockFile);
+  await remove(xcworkspaceFile);
+}
+
+export async function generatePackageText(config: Config, plugins: Plugin[]): Promise<string> {
+  const iosPlatformVersion = await getCapacitorPackageVersion(config, config.ios.name);
+  const iosVersion = getMajoriOSVersion(config);
+  const packageTraits = config.app.extConfig.experimental?.ios?.spm?.packageTraits ?? {};
+  const packageOptions = config.app.extConfig.experimental?.ios?.spm?.packageOptions ?? {};
+  const swiftToolsVersion = config.app.extConfig.experimental?.ios?.spm?.swiftToolsVersion ?? '5.9';
+
+  let packageSwiftText = `// swift-tools-version: ${swiftToolsVersion}
+import PackageDescription
+
+// DO NOT MODIFY THIS FILE - managed by Capacitor CLI commands
+let package = Package(
+    name: "CapApp-SPM",
+    platforms: [.iOS(.v${iosVersion})],
+    products: [
+        .library(
+            name: "CapApp-SPM",
+            targets: ["CapApp-SPM"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "${iosPlatformVersion}")`;
+
+  for (const plugin of plugins) {
+    if (getPluginType(plugin, config.ios.name) === PluginType.Cordova) {
+      const platformTag = getPluginPlatform(plugin, config.ios.name);
+      if (platformTag.$?.package) {
+        const relPath = convertToUnixPath(relative(config.ios.nativeXcodeProjDirAbs, plugin.rootPath));
+        packageSwiftText += `,\n        .package(name: "${plugin.id}", path: "${relPath}")`;
+      } else {
+        const sourceFiles = getPlatformElement(plugin, config.ios.name, 'source-file');
+        const headerFiles = getPlatformElement(plugin, config.ios.name, 'header-file');
+        if (sourceFiles.length === 0 && headerFiles.length === 0) {
+          continue;
+        }
+        packageSwiftText += `,\n        .package(name: "${plugin.name}", path: "../../capacitor-cordova-ios-plugins/sources/${plugin.name}")`;
+      }
+    } else {
+      const options = packageOptions[plugin.id];
+      const symlink = options?.symlink;
+      const symlinkFolder = join('symlinks', plugin.name);
+      const relPath = symlink
+        ? symlinkFolder
+        : convertToUnixPath(relative(config.ios.nativeXcodeProjDirAbs, plugin.rootPath));
+      if (symlink) {
+        await ensureSymlink(plugin.rootPath, resolve(config.ios.nativeProjectDirAbs, 'CapApp-SPM', symlinkFolder));
+      }
+      const traits = packageTraits[plugin.id];
+      const traitsSuffix = traits?.length
+        ? `, traits: [${traits
+            .map((t) => {
+              // Any trait is written with quotes, with the exception of .defaults
+              return /^\.?defaults?$/i.test(t) ? '.defaults' : `"${t}"`;
+            })
+            .join(', ')}]`
+        : '';
+      packageSwiftText += `,\n        .package(name: "${plugin.ios?.name}", path: "${relPath}"${traitsSuffix})`;
+    }
+  }
+
+  packageSwiftText += `
+    ],
+    targets: [
+        .target(
+            name: "CapApp-SPM",
+            dependencies: [
+                .product(name: "Capacitor", package: "capacitor-swift-pm"),
+                .product(name: "Cordova", package: "capacitor-swift-pm")`;
+
+  for (const plugin of plugins) {
+    const aliases = Object.entries(packageOptions[plugin.id]?.moduleAliases ?? {});
+    const aliasText = aliases?.length
+      ? `, moduleAliases:  [${aliases
+          .map(([target, replacement]) => {
+            return `"${target}": "${replacement}"`;
+          })
+          .join(', ')}]`
+      : '';
+    let pluginText = `,\n                .product(name: "${plugin.ios?.name}", package: "${plugin.ios?.name}"${aliasText})`;
+    if (getPluginType(plugin, config.ios.name) === PluginType.Cordova) {
+      const platformTag = getPluginPlatform(plugin, config.ios.name);
+      if (platformTag.$?.package) {
+        pluginText = `,\n                .product(name: "${plugin.id}", package: "${plugin.id}")`;
+      } else {
+        const sourceFiles = getPlatformElement(plugin, config.ios.name, 'source-file');
+        const headerFiles = getPlatformElement(plugin, config.ios.name, 'header-file');
+        if (sourceFiles.length === 0 && headerFiles.length === 0) {
+          pluginText = '';
+        }
+      }
+    }
+    packageSwiftText += pluginText;
+  }
+
+  packageSwiftText += `
+            ]
+        )
+    ]
+)
+`;
+
+  return packageSwiftText;
+}
+
+export async function runCocoapodsDeintegrate(config: Config): Promise<void> {
+  const podPath = await config.ios.podPath;
+  const projectFileName = config.ios.nativeXcodeProjDirAbs;
+  const useBundler = (await config.ios.packageManager) === 'bundler';
+
+  logger.info('Running pod deintegrate on project ' + projectFileName);
+
+  if (useBundler) {
+    logger.info('Found bundler, using it to run CocoaPods.');
+    await runCommand('bundle', ['exec', 'pod', 'deintegrate', projectFileName], {
+      cwd: config.ios.nativeProjectDirAbs,
+    });
+  } else {
+    await runCommand(podPath, ['deintegrate', projectFileName], {
+      cwd: config.ios.nativeProjectDirAbs,
+    });
+  }
+}
+
+export async function addInfoPlistDebugIfNeeded(config: Config): Promise<void> {
+  type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+
+  const infoPlist = resolve(config.ios.nativeTargetDirAbs, 'Info.plist');
+  logger.info('Checking ' + infoPlist + ' for CAPACITOR_DEBUG');
+
+  if (existsSync(infoPlist)) {
+    const infoPlistContents = readFileSync(infoPlist, 'utf-8');
+    const plistEntries = parse(infoPlistContents) as Mutable<PlistObject>;
+
+    if (plistEntries['CAPACITOR_DEBUG'] === undefined) {
+      logger.info('Writing CAPACITOR_DEBUG to ' + infoPlist);
+      plistEntries['CAPACITOR_DEBUG'] = '$(CAPACITOR_DEBUG)';
+      const plistToWrite = build(plistEntries);
+      writeFileSync(infoPlist, plistToWrite);
+    } else {
+      logger.warn('Found CAPACITOR_DEBUG set to ' + plistEntries['CAPACITOR_DEBUG'] + ', skipping.');
+    }
+  } else {
+    logger.warn(infoPlist + ' not found.');
+  }
+}
+
+export function hasSceneManifest(config: Config): boolean {
+  const infoPlist = resolve(config.ios.nativeTargetDirAbs, 'Info.plist');
+  if (!existsSync(infoPlist)) {
+    return false;
+  }
+  const entries = parse(readFileSync(infoPlist, 'utf-8')) as PlistObject;
+  return entries['UIApplicationSceneManifest'] !== undefined;
+}
+
+export async function addSceneManifestIfNeeded(config: Config): Promise<void> {
+  type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+
+  const infoPlist = resolve(config.ios.nativeTargetDirAbs, 'Info.plist');
+
+  if (!existsSync(infoPlist)) {
+    logger.warn(infoPlist + ' not found.');
+    return;
+  }
+
+  const entries = parse(readFileSync(infoPlist, 'utf-8')) as Mutable<PlistObject>;
+
+  if (entries['UIApplicationSceneManifest'] !== undefined) {
+    logger.warn('Found UIApplicationSceneManifest in ' + infoPlist + ', skipping.');
+    return;
+  }
+
+  entries['UIApplicationSceneManifest'] = {
+    UIApplicationSupportsMultipleScenes: false,
+    UISceneConfigurations: {
+      UIWindowSceneSessionRoleApplication: [
+        {
+          UISceneConfigurationName: 'Default Configuration',
+          UISceneDelegateClassName: '$(PRODUCT_MODULE_NAME).SceneDelegate',
+          UISceneStoryboardFile: 'Main',
+        },
+      ],
+    },
+  };
+
+  writeFileSync(infoPlist, build(entries));
+}
+
+export async function checkSwiftToolsVersion(config: Config, version: string | undefined): Promise<string | null> {
+  if (!version) {
+    return null;
+  }
+
+  const swiftToolsVersionRegex = /^[0-9]+\.[0-9]+(\.[0-9]+)?$/;
+
+  if (!swiftToolsVersionRegex.test(version)) {
+    return (
+      `Invalid Swift tools version: "${version}".\n` +
+      `The Swift tools version must be in major.minor or major.minor.patch format (e.g., "5.9", "6.0", "5.9.2").`
+    );
+  }
+
+  return null;
+}
+
+export async function checkPackageTraitsRequirements(config: Config): Promise<string | null> {
+  const packageTraits = config.app.extConfig.experimental?.ios?.spm?.packageTraits;
+  const swiftToolsVersion = config.app.extConfig.experimental?.ios?.spm?.swiftToolsVersion;
+
+  const hasPackageTraits = packageTraits && Object.keys(packageTraits).some((key) => packageTraits[key]?.length > 0);
+
+  if (!hasPackageTraits) {
+    return null;
+  }
+
+  if (!swiftToolsVersion) {
+    return (
+      `Package traits require an explicit Swift tools version of 6.1 or higher.\n` +
+      `Set experimental.ios.spm.swiftToolsVersion to '6.1' or higher in your Capacitor configuration.`
+    );
+  }
+
+  const versionParts = swiftToolsVersion.split('.').map((part) => parseInt(part, 10));
+  const major = versionParts[0] || 0;
+  const minor = versionParts[1] || 0;
+
+  if (major < 6 || (major === 6 && minor < 1)) {
+    return (
+      `Package traits require Swift tools version 6.1 or higher, but "${swiftToolsVersion}" was specified.\n` +
+      `Update experimental.ios.spm.swiftToolsVersion to '6.1' or higher in your Capacitor configuration.`
+    );
+  }
+
+  return null;
+}
+
+// Private Functions
+
+async function pluginsWithPackageSwift(plugins: Plugin[]): Promise<Plugin[]> {
+  const pluginList: Plugin[] = [];
+  for (const plugin of plugins) {
+    const packageSwiftFound = await pathExists(join(plugin.rootPath, 'Package.swift'));
+    if (packageSwiftFound) {
+      pluginList.push(plugin);
+    } else {
+      logger.warn(plugin.id + ' does not have a Package.swift');
+    }
+  }
+
+  return pluginList;
+}

@@ -50,4 +50,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         config.delegateClass = SceneDelegate.self
         return config
     }
+    
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        // Store completion handler for background session
+        YagamiBackgroundSessionManager.shared.completionHandler = completionHandler
+    }
 }
