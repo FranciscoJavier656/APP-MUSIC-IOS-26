@@ -1,9 +1,11 @@
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import React, { useEffect, useState, useRef } from 'react';
-import { ChevronDown, Info, Download, MoreHorizontal, Heart, Cast, Timer } from 'lucide-react';
+import { ChevronDown, MoreHorizontal, Plus, Cast, Timer, Heart, Share, ListMusic } from 'lucide-react';
 import EqualizerPanel from './EqualizerPanel';
 import { usePlayer } from './PlayerContext';
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { registerPlugin } from '@capacitor/core';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { getImageSrc } from '../lib/image';
 import { OfflineImage } from './OfflineImage';
 import { toggleFavoriteTrack } from '../lib/qobuz';
@@ -30,50 +32,73 @@ export default function ExpandedPlayer() {
   const [sleepTimer, setSleepTimer] = useState<number | null>(null);
   const sleepTimerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const safeHaptics = (style: ImpactStyle) => {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        Haptics.impact({ style: style }).catch(() => {});
+      }
+    } catch (e) {}
+  };
+
   const toggleSleepTimer = () => {
-    // Cycle: null -> 15 -> 30 -> 60 -> null
+    safeHaptics(ImpactStyle.Medium);
     const nextTimer = sleepTimer === null ? 15 : sleepTimer === 15 ? 30 : sleepTimer === 30 ? 60 : null;
     setSleepTimer(nextTimer);
     
     if (sleepTimerTimeoutRef.current) clearTimeout(sleepTimerTimeoutRef.current);
     
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full text-xs font-semibold z-50 animate-fade-in-up';
+    
     if (nextTimer !== null) {
+      toast.innerText = `Sleep Timer: ${nextTimer} min`;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2500);
+
       sleepTimerTimeoutRef.current = setTimeout(() => {
-        // Pause playback when timer ends
         const audio = document.getElementById('audio-element') as HTMLAudioElement;
         if (audio) audio.pause();
-        // The store handles togglePlay, but calling pause() directly on audio is safer from inside a timeout if state is stale
-        // Best approach is using custom event or standard DOM method
         document.dispatchEvent(new CustomEvent('pause-playback'));
         setSleepTimer(null);
       }, nextTimer * 60 * 1000);
+    } else {
+      toast.innerText = 'Sleep Timer Off';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2500);
     }
   };
-  
-  const handleFavoriteToggle = async (e: React.MouseEvent) => {
-     e.stopPropagation();
-     const newState = !isFavorite;
-     setIsFavorite(newState);
-     try {
-         await toggleFavoriteTrack(currentTrack.id, !newState);
-     } catch(err) {
-         setIsFavorite(!newState); // revert on error
-     }
+
+  const handleFavoriteClick = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      safeHaptics(ImpactStyle.Light);
+      
+      const nextFav = !isFavorite;
+      setIsFavorite(nextFav);
+      
+      try {
+        if (currentTrack) {
+          await toggleFavoriteTrack(currentTrack.id, nextFav);
+        }
+      } catch (err) {
+        console.error("Failed to toggle favorite:", err);
+        setIsFavorite(!nextFav); // Revert on failure
+      }
   };
   
   const handleAirPlayClick = async (e: React.MouseEvent) => {
-     e.stopPropagation();
-     try {
-       if (Capacitor.isNativePlatform()) {
-         const QobuzNative = registerPlugin('QobuzAudio');
-         await QobuzNative.showAirPlayPicker();
-       } else {
-         alert("AirPlay no está disponible en la web.");
+       e.stopPropagation();
+       safeHaptics(ImpactStyle.Light);
+       try {
+         if (Capacitor.isNativePlatform()) {
+           const QobuzNative = registerPlugin('QobuzAudio');
+           await QobuzNative.showAirPlayPicker();
+         } else {
+           alert("AirPlay no está disponible en la web.");
+         }
+       } catch (err) {
+         console.error("AirPlay error:", err);
        }
-     } catch (err) {
-       console.error("AirPlay error:", err);
-     }
-  };
+    };
   
   // Swipe gesture state
   const [touchStartY, setTouchStartY] = useState(0);
