@@ -48,10 +48,6 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
       const deltaY = e.touches[0].clientY - touchStartYRef.current;
       currentScrollYRef.current = touchStartScrollYRef.current - deltaY;
       
-      if (lyricsContainerRef.current) {
-          lyricsContainerRef.current.style.transform = `translateY(${-currentScrollYRef.current}px)`;
-      }
-      
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       scrollTimeoutRef.current = setTimeout(() => {
           isManualScrollingRef.current = false;
@@ -326,12 +322,15 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               if (activeChild) {
                   // LERP Parallax Scrolling or Manual Override
                   let targetY = activeChild.offsetTop + (activeChild.clientHeight / 2);
+                  if (lyricsContainerRef.current && lyricsContainerRef.current.parentElement) {
+                      targetY -= lyricsContainerRef.current.parentElement.clientHeight / 2;
+                  }
                   
                   if (!isManualScrollingRef.current) {
-                      if (Math.abs(targetY - currentScrollYRef.current) > 300) {
-                          currentScrollYRef.current = targetY; // Snap if distance is too large
+                      if (Math.abs(targetY - currentScrollYRef.current) > 350) {
+                          currentScrollYRef.current = targetY; // Snap if distance is too large (e.g. flip or seek)
                       } else {
-                          currentScrollYRef.current += (targetY - currentScrollYRef.current) * 0.08; // Factor de suavidad
+                          currentScrollYRef.current += (targetY - currentScrollYRef.current) * 0.12; // Smoother and faster LERP
                       }
                   }
                   
@@ -563,7 +562,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   className="overflow-hidden flex-1 text-center cursor-default relative" 
                   style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}
                 >
-                  <div className="absolute inset-x-0 top-1/2 flex flex-col items-center px-4 transition-transform duration-75" ref={lyricsContainerRef}>
+                  <div className="absolute inset-x-0 top-1/2 flex flex-col items-center px-4 will-change-transform" ref={lyricsContainerRef}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
@@ -573,7 +572,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                              seekTo(line.time);
                              isManualScrollingRef.current = false;
                           }}
-                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 transition-all duration-[600ms] ease-[cubic-bezier(0.19,1,0.22,1)] origin-center flex flex-col items-center gap-1.5"
+                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity,filter]"
                           style={{ 
                             opacity: 0.3, 
                             transform: 'scale(0.95)', 
