@@ -403,7 +403,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           
           if (lyricsBgRef.current) {
              const scale = 1.1 + ((window as any).bgSmoothed * 0.05); 
-             const opacity = 0.4 + ((window as any).bgSmoothed * 0.4); 
+             const opacity = 0.65 + ((window as any).bgSmoothed * 0.35); 
              lyricsBgRef.current.style.transform = `scale(${scale})`;
              lyricsBgRef.current.style.opacity = `${opacity}`;
           }
@@ -508,18 +508,18 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
             {/* Yagami Audio-Reactive Mesh Background */}
             <div className="absolute inset-0 overflow-hidden rounded-3xl bg-neutral-900">
               {/* Audio Reactive Orbs */}
-              <div ref={lyricsBgRef} className="absolute inset-0 transition-opacity duration-75 mix-blend-screen opacity-50">
+              <div ref={lyricsBgRef} className="absolute inset-0 transition-opacity duration-75 mix-blend-screen opacity-70">
                 <div 
-                  className="absolute w-full h-[120%] top-[-10%] left-[-20%] rounded-full opacity-80 animate-[spin_15s_linear_infinite]"
-                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 60%)` : 'none', filter: 'blur(40px)' }}
+                  className="absolute w-full h-[120%] top-[-10%] left-[-20%] rounded-full opacity-100 animate-[spin_15s_linear_infinite]"
+                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 60%)` : 'none', filter: 'blur(40px) saturate(150%)' }}
                 />
                 <div 
-                  className="absolute w-[120%] h-full bottom-[-10%] right-[-20%] rounded-full opacity-60 animate-[spin_20s_linear_infinite_reverse]"
-                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 70%)` : 'none', filter: 'blur(50px)' }}
+                  className="absolute w-[120%] h-full bottom-[-10%] right-[-20%] rounded-full opacity-90 animate-[spin_20s_linear_infinite_reverse]"
+                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 70%)` : 'none', filter: 'blur(50px) saturate(150%)' }}
                 />
               </div>
               {/* Glass Overlay for readability */}
-              <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl rounded-3xl" />
+              <div className="absolute inset-0 bg-black/30 backdrop-blur-3xl rounded-3xl" />
             </div>
             
             <div className="absolute inset-0 flex flex-col p-4 bg-black/20 rounded-3xl">
