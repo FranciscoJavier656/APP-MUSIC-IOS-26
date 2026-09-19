@@ -1,5 +1,6 @@
 import Foundation
 import Capacitor
+import UIKit
 
 @objc(LiquidTabBarPlugin)
 public class LiquidTabBarPlugin: CAPPlugin {
@@ -177,18 +178,15 @@ public class ImageCachePlugin: CAPPlugin {
             
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 // Update access date for LRU
-                try? fileURL.setResourceValues({
+                var mutableFileURL = fileURL
+                try? mutableFileURL.setResourceValues({
                     var values = URLResourceValues()
                     values.contentAccessDate = Date()
                     return values
                 }())
                 
                 DispatchQueue.main.async {
-                    if let webUrl = self.bridge?.localURL(for: fileURL) {
-                        call.resolve(["value": webUrl.absoluteString])
-                    } else {
-                        call.resolve(["value": fileURL.absoluteString])
-                    }
+                    call.resolve(["value": fileURL.absoluteString])
                 }
                 return
             }
@@ -214,11 +212,7 @@ public class ImageCachePlugin: CAPPlugin {
                 self.enforceDiskCacheLimit()
                 
                 DispatchQueue.main.async {
-                    if let webUrl = self.bridge?.localURL(for: fileURL) {
-                        call.resolve(["value": webUrl.absoluteString])
-                    } else {
-                        call.resolve(["value": fileURL.absoluteString])
-                    }
+                    call.resolve(["value": fileURL.absoluteString])
                 }
                 
             } catch {
