@@ -993,6 +993,8 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         [[NSUserDefaults standardUserDefaults] setObject:gains forKey:@"eq_gains"];
         [[NSUserDefaults standardUserDefaults] synchronize];
     }
+}
+
 - (void)showAirPlayPicker:(CAPPluginCall *)call {
     dispatch_async(dispatch_get_main_queue(), ^{
         AVRoutePickerView *picker = [[AVRoutePickerView alloc] initWithFrame:CGRectMake(0, 0, 0, 0)];
