@@ -505,12 +505,22 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
             className="absolute inset-0 rounded-3xl overflow-hidden border border-white/20 bg-black cursor-pointer"
             style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', pointerEvents: showLyrics ? 'auto' : 'none' }}
           >
-            {/* Blurred background */}
-            <div 
-              ref={lyricsBgRef}
-              className="absolute inset-0 opacity-60 scale-125 transition-transform" 
-              style={{ backgroundImage: `url(${currentTrack.image})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(150%)' }}
-            />
+            {/* Yagami Audio-Reactive Mesh Background */}
+            <div className="absolute inset-0 overflow-hidden bg-neutral-900">
+              {/* Audio Reactive Orbs */}
+              <div ref={lyricsBgRef} className="absolute inset-0 transition-opacity duration-75 mix-blend-screen opacity-50">
+                <div 
+                  className="absolute w-full h-[120%] top-[-10%] left-[-20%] rounded-full opacity-80 animate-[spin_15s_linear_infinite]"
+                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 60%)` : 'none', filter: 'blur(40px)' }}
+                />
+                <div 
+                  className="absolute w-[120%] h-full bottom-[-10%] right-[-20%] rounded-full opacity-60 animate-[spin_20s_linear_infinite_reverse]"
+                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 70%)` : 'none', filter: 'blur(50px)' }}
+                />
+              </div>
+              {/* Glass Overlay for readability */}
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl" />
+            </div>
             
             <div className="absolute inset-0 flex flex-col p-4 bg-black/20">
                 <div onTouchMove={(e) => e.stopPropagation()} className="overflow-hidden flex-1 text-center cursor-default relative" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}>
