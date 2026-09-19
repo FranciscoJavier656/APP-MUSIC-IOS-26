@@ -1,5 +1,5 @@
 import { motion, AnimatePresence, Reorder } from 'motion/react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { ChevronDown, Info, Download, MoreHorizontal, Heart, Cast, Timer } from 'lucide-react';
 import EqualizerPanel from './EqualizerPanel';
 import { usePlayer } from './PlayerContext';
