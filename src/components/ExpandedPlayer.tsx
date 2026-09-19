@@ -199,7 +199,7 @@ export default function ExpandedPlayer() {
       <PlayerArtwork dominantColor={dominantColor} setDominantColor={setDominantColor} />
 
       {/* Track Info & Controls */}
-      <div className="mt-2 mb-8 relative z-10">
+      <div className="mt-2 mb-2 sm:mb-6 relative z-10">
         <div className="flex items-center justify-between mb-6">
           {/* Left: Title, Artist and Badge */}
           <div className="pr-4 flex-1 min-w-0">
@@ -261,7 +261,7 @@ export default function ExpandedPlayer() {
         <PlayerControls dominantColor={dominantColor} />
         
         {/* Secondary Controls (Bottom) */}
-        <div className="flex items-center justify-between px-6 sm:px-10 mt-6">
+        <div className="flex items-center justify-between px-6 sm:px-10 mt-4">
            <button onClick={handleAirPlayClick} className="flex flex-col items-center gap-1.5 text-black/40 dark:text-white/40 hover:text-black/80 dark:hover:text-white/80 transition-colors">
               <Cast className="w-5 h-5" />
               <span className="text-[10px] font-semibold tracking-wider">AIRPLAY</span>

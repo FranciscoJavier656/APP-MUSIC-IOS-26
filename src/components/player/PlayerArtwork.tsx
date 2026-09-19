@@ -507,8 +507,8 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           layoutId="player-artwork"
           className="relative aspect-square rounded-3xl shadow-[0_35px_60px_-15px_rgba(0,0,0,1),0_20px_30px_-5px_rgba(0,0,0,0.8)] cursor-pointer"
           style={{ 
-            width: 'min(100%, 45vh, 380px)',
-            height: 'min(100%, 45vh, 380px)',
+            width: 'min(100%, 50vh, 400px)',
+            height: 'min(100%, 50vh, 400px)',
             transformStyle: 'preserve-3d'
           }}
           animate={{
