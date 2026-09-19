@@ -33,9 +33,25 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   
   const isManualScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartYRef = useRef(0);
+  const touchStartScrollYRef = useRef(0);
+  const currentScrollYRef = useRef(0);
 
-  const handleUserScroll = () => {
+  const handleTouchStart = (e: React.TouchEvent) => {
       isManualScrollingRef.current = true;
+      touchStartYRef.current = e.touches[0].clientY;
+      touchStartScrollYRef.current = currentScrollYRef.current;
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+      e.stopPropagation();
+      const deltaY = e.touches[0].clientY - touchStartYRef.current;
+      currentScrollYRef.current = touchStartScrollYRef.current - deltaY;
+      
+      if (lyricsContainerRef.current) {
+          lyricsContainerRef.current.style.transform = `translateY(${-currentScrollYRef.current}px)`;
+      }
+      
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       scrollTimeoutRef.current = setTimeout(() => {
           isManualScrollingRef.current = false;
@@ -240,7 +256,6 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   useEffect(() => {
     let animationId: number;
     let timeoutId: number;
-    let currentScrollY = 0; // Para el smooth parallax de las letras
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
         
@@ -310,25 +325,17 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               const activeChild = lyricsContainerRef.current.children[activeIdx] as HTMLElement;
               if (activeChild) {
                   // LERP Parallax Scrolling or Manual Override
-                  const containerHeight = lyricsContainerRef.current.parentElement?.clientHeight || 0;
-                  let targetY = activeChild.offsetTop - (containerHeight / 2) + (activeChild.clientHeight / 2);
-                  if (targetY < 0) targetY = 0;
+                  let targetY = activeChild.offsetTop + (activeChild.clientHeight / 2);
                   
                   if (!isManualScrollingRef.current) {
-                      if (Math.abs(targetY - currentScrollY) > 300) {
-                          currentScrollY = targetY; // Snap if distance is too large
+                      if (Math.abs(targetY - currentScrollYRef.current) > 300) {
+                          currentScrollYRef.current = targetY; // Snap if distance is too large
                       } else {
-                          currentScrollY += (targetY - currentScrollY) * 0.08; // Factor de suavidad
-                      }
-                      
-                      if (lyricsContainerRef.current.parentElement) {
-                          lyricsContainerRef.current.parentElement.scrollTop = currentScrollY;
-                      }
-                  } else {
-                      if (lyricsContainerRef.current.parentElement) {
-                          currentScrollY = lyricsContainerRef.current.parentElement.scrollTop;
+                          currentScrollYRef.current += (targetY - currentScrollYRef.current) * 0.08; // Factor de suavidad
                       }
                   }
+                  
+                  lyricsContainerRef.current.style.transform = `translateY(${-currentScrollYRef.current}px)`;
 
                   const activeLine = lyricsArray[activeIdx];
                   let percent = ((adjustedCurrent - activeLine.time) / activeLine.duration);
@@ -551,13 +558,12 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
             
             <div className="absolute inset-0 flex flex-col p-4 bg-black/20 rounded-3xl">
                 <div 
-                  onTouchStart={handleUserScroll}
-                  onTouchMove={handleUserScroll}
-                  onWheel={handleUserScroll}
-                  className="overflow-y-auto flex-1 text-center relative no-scrollbar" 
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  className="overflow-hidden flex-1 text-center cursor-default relative" 
                   style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}
                 >
-                  <div className="flex flex-col items-center px-4 pt-[50vh] pb-[50vh]" ref={lyricsContainerRef}>
+                  <div className="absolute inset-x-0 top-1/2 flex flex-col items-center px-4 transition-transform duration-75" ref={lyricsContainerRef}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
