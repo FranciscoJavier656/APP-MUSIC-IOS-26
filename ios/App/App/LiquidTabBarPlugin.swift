@@ -140,9 +140,7 @@ public class LiquidTabBarPlugin: CAPPlugin {
     }
 }
 
-import Foundation
-import Capacitor
-import UIKit
+
 
 @objc(ImageCachePlugin)
 public class ImageCachePlugin: CAPPlugin {
