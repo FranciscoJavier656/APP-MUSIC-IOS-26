@@ -491,7 +491,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           }}
         >
           {/* Front (Image) */}
-          <div onClick={() => setShowLyrics(true)} className="absolute inset-0 rounded-3xl overflow-hidden shadow-inner cursor-pointer" style={{ backfaceVisibility: 'hidden', pointerEvents: showLyrics ? 'none' : 'auto' }}>
+          <div onClick={() => setShowLyrics(true)} className="absolute inset-0 rounded-3xl overflow-hidden shadow-inner cursor-pointer" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', pointerEvents: showLyrics ? 'none' : 'auto', transform: 'translateZ(1px)' }}>
             <img
               src={resolvedImageSrc || getImageSrc(currentTrack?.album?.image || currentTrack?.image || currentTrack?.original?.album?.image || currentTrack?.original?.image)}
               alt={currentTrack.albumTitle || "Album Cover"}
@@ -503,10 +503,10 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           <div 
             onClick={() => setShowLyrics(false)}
             className="absolute inset-0 rounded-3xl overflow-hidden border border-white/20 bg-black cursor-pointer"
-            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', pointerEvents: showLyrics ? 'auto' : 'none' }}
+            style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg) translateZ(1px)', pointerEvents: showLyrics ? 'auto' : 'none' }}
           >
             {/* Yagami Audio-Reactive Mesh Background */}
-            <div className="absolute inset-0 overflow-hidden bg-neutral-900">
+            <div className="absolute inset-0 overflow-hidden rounded-3xl bg-neutral-900">
               {/* Audio Reactive Orbs */}
               <div ref={lyricsBgRef} className="absolute inset-0 transition-opacity duration-75 mix-blend-screen opacity-50">
                 <div 
@@ -519,10 +519,10 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                 />
               </div>
               {/* Glass Overlay for readability */}
-              <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl" />
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl rounded-3xl" />
             </div>
             
-            <div className="absolute inset-0 flex flex-col p-4 bg-black/20">
+            <div className="absolute inset-0 flex flex-col p-4 bg-black/20 rounded-3xl">
                 <div onTouchMove={(e) => e.stopPropagation()} className="overflow-hidden flex-1 text-center cursor-default relative" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}>
                   <div className="absolute inset-x-0 top-1/2 flex flex-col items-center px-4 transition-transform duration-75" ref={lyricsContainerRef}>
                     {parsedLyrics ? (
