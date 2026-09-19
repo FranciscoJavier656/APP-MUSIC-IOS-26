@@ -56,9 +56,12 @@ export default function ExpandedPlayer() {
       setTimeout(() => toast.remove(), 2500);
 
       sleepTimerTimeoutRef.current = setTimeout(() => {
-        const audio = document.getElementById('audio-element') as HTMLAudioElement;
-        if (audio) audio.pause();
-        document.dispatchEvent(new CustomEvent('pause-playback'));
+        import('../lib/playerStore').then(({ usePlayerStore }) => {
+            const state = usePlayerStore.getState();
+            if (state.isPlaying) {
+                state.togglePlay();
+            }
+        });
         setSleepTimer(null);
       }, nextTimer * 60 * 1000);
     } else {
