@@ -229,6 +229,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   useEffect(() => {
     let animationId: number;
     let timeoutId: number;
+    let currentScrollY = 0; // Para el smooth parallax de las letras
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
         
@@ -260,16 +261,16 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   
                   if (i === activeIdx) {
                       child.style.opacity = '1';
-                      child.style.transform = 'scale(1.15)';
+                      child.style.transform = 'scale(1.1)';
                       child.style.filter = 'blur(0px)';
-                      child.style.textShadow = '0 0 20px rgba(255,255,255,0.4)';
-                      child.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      child.style.textShadow = '0 0 30px rgba(255,255,255,0.5)';
+                      child.style.color = '#ffffff';
                   } else {
                       child.style.background = 'none';
                       child.style.WebkitBackgroundClip = 'initial';
                       child.style.WebkitTextFillColor = 'initial';
                       child.style.backgroundClip = 'initial';
-                      child.style.color = 'rgba(255,255,255,0.5)';
+                      child.style.color = 'rgba(255,255,255,0.4)';
                       
                       const words = child.querySelectorAll('.word');
                       words.forEach(w => {
@@ -282,9 +283,9 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                           htmlWord.style.textShadow = 'none';
                       });
 
-                      const blurAmount = Math.min(distance * 1.5, 6);
-                      const opacityAmount = Math.max(0.6 - (distance * 0.15), 0.1);
-                      const scaleAmount = Math.max(0.95 - (distance * 0.02), 0.85);
+                      const blurAmount = distance === 0 ? 0 : Math.min(distance * 2.5, 12);
+                      const opacityAmount = distance === 0 ? 1 : Math.max(0.6 - (distance * 0.15), 0.05);
+                      const scaleAmount = distance === 0 ? 1.1 : Math.max(0.95 - (distance * 0.03), 0.8);
                       
                       child.style.opacity = opacityAmount.toString();
                       child.style.transform = `scale(${scaleAmount})`;
@@ -295,12 +296,21 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           }
           
           if (activeIdx >= 0 && activeIdx < lyricsArray.length) {
-              const activeLine = lyricsArray[activeIdx];
-              const activeChild = lyricsContainerRef.current.children[activeIdx];
+              const activeChild = lyricsContainerRef.current.children[activeIdx] as HTMLElement;
               if (activeChild) {
+                  // LERP Parallax Scrolling
+                  const containerHeight = lyricsContainerRef.current.parentElement?.clientHeight || 0;
+                  const targetY = activeChild.offsetTop - (containerHeight / 2) + (activeChild.clientHeight / 2);
+                  currentScrollY += (targetY - currentScrollY) * 0.08; // Factor de suavidad
+                  lyricsContainerRef.current.style.transform = `translateY(${-currentScrollY}px)`;
+
+                  const activeLine = lyricsArray[activeIdx];
                   let percent = ((adjustedCurrent - activeLine.time) / activeLine.duration);
                   if (percent < 0) percent = 0;
                   if (percent > 1) percent = 1;
+                  
+                  // Karaoke gradient smoothing
+                  const easeOutPercent = 1 - Math.pow(1 - percent, 3);
                   
                   const words = activeChild.querySelectorAll('.word');
                   if (words.length > 0) {
@@ -310,23 +320,23 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                           const wordEnd = (wIdx + 1) / totalWords;
                           const htmlWord = wordSpan as HTMLElement;
                           
-                          if (percent >= wordEnd) {
+                          if (easeOutPercent >= wordEnd) {
                               htmlWord.style.background = 'none';
                               htmlWord.style.color = '#ffffff';
                               htmlWord.style.WebkitTextFillColor = 'initial';
-                              htmlWord.style.textShadow = '0 0 16px rgba(255,255,255,0.4)';
-                          } else if (percent <= wordStart) {
+                              htmlWord.style.textShadow = '0 0 20px rgba(255,255,255,0.5)';
+                          } else if (easeOutPercent <= wordStart) {
                               htmlWord.style.background = 'none';
-                              htmlWord.style.color = 'rgba(255,255,255,0.3)';
+                              htmlWord.style.color = 'rgba(255,255,255,0.4)';
                               htmlWord.style.WebkitTextFillColor = 'initial';
                               htmlWord.style.textShadow = 'none';
                           } else {
-                              const wordPct = ((percent - wordStart) / (wordEnd - wordStart)) * 100;
-                              htmlWord.style.background = `linear-gradient(to right, #ffffff ${wordPct}%, rgba(255,255,255,0.3) ${wordPct}%)`;
+                              const wordPct = ((easeOutPercent - wordStart) / (wordEnd - wordStart)) * 100;
+                              htmlWord.style.background = `linear-gradient(to right, #ffffff ${wordPct}%, rgba(255,255,255,0.4) ${wordPct}%)`;
                               htmlWord.style.WebkitBackgroundClip = 'text';
                               htmlWord.style.WebkitTextFillColor = 'transparent';
                               htmlWord.style.backgroundClip = 'text';
-                              htmlWord.style.textShadow = '0 0 16px rgba(255,255,255,0.2)';
+                              htmlWord.style.textShadow = '0 0 15px rgba(255,255,255,0.3)';
                           }
                       });
                   }
@@ -499,26 +509,18 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
             {/* Blurred background */}
             <div 
               ref={lyricsBgRef}
-              className="absolute inset-0 opacity-40 scale-110 transition-transform" 
-              style={{ backgroundImage: `url(${currentTrack.image})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(30px)' }}
+              className="absolute inset-0 opacity-60 scale-125 transition-transform" 
+              style={{ backgroundImage: `url(${currentTrack.image})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(60px) saturate(150%)' }}
             />
             
-            <div className="absolute inset-0 flex flex-col p-6 bg-black/40">
-                <div className="flex justify-center mb-2 relative z-20">
-                  <span 
-                    onClick={(e) => { e.stopPropagation(); setShowLyrics(false); }}
-                    className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-bold text-white/90 tracking-widest uppercase shadow-sm cursor-pointer hover:bg-white/20 active:bg-white/30 transition-colors"
-                  >
-                    Volver a Portada
-                  </span>
-                </div>
-                <div onTouchMove={(e) => e.stopPropagation()} className="overflow-y-auto flex-1 text-center cursor-default" style={{ scrollbarWidth: 'none', maskImage: 'linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%)' }}>
-                  <div className="flex flex-col items-center justify-center min-h-full py-20 px-4" ref={lyricsContainerRef}>
+            <div className="absolute inset-0 flex flex-col p-4 bg-black/20">
+                <div onTouchMove={(e) => e.stopPropagation()} className="overflow-hidden flex-1 text-center cursor-default relative" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}>
+                  <div className="absolute inset-x-0 top-1/2 flex flex-col items-center px-4 transition-transform duration-75" ref={lyricsContainerRef}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
                           key={idx} 
-                          className="text-white/60 text-[1.35rem] leading-[1.4] font-bold mb-7 transition-all duration-500 ease-[cubic-bezier(0.19,1,0.22,1)] origin-center flex flex-col items-center gap-1.5"
+                          className="text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 transition-all duration-[600ms] ease-[cubic-bezier(0.19,1,0.22,1)] origin-center flex flex-col items-center gap-1.5"
                           style={{ 
                             opacity: 0.3, 
                             transform: 'scale(0.95)', 
