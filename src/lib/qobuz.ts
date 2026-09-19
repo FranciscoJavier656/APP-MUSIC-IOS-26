@@ -162,3 +162,47 @@ export const toggleFavoriteTrack = async (trackId: string, isCurrentlyFavorite: 
   // Fallback for dev proxy if needed
   return { success: true };
 };
+
+export const getSimilarTracks = async (trackId: string, limit: number = 20) => {
+  if (Capacitor.isNativePlatform()) {
+    const res = await axios.get(`${QOBUZ_API}track/getSimilar`, {
+      params: { track_id: trackId, limit },
+      headers: { 'x-app-id': qobuzAppId, 'x-user-auth-token': qobuzToken || undefined }
+    });
+    return res.data;
+  }
+  return { tracks: { items: [] } }; // Fallback
+};
+
+export const reportTrackPlay = async (trackId: string, duration: number = 30) => {
+  if (Capacitor.isNativePlatform()) {
+    const res = await axios.get(`${QOBUZ_API}track/reportEvent`, {
+      params: { track_id: trackId, event_type: 'play', duration },
+      headers: { 'x-app-id': qobuzAppId, 'x-user-auth-token': qobuzToken || undefined }
+    });
+    return res.data;
+  }
+  return { success: true };
+};
+
+export const addTracksToPlaylist = async (playlistId: string, trackIds: string) => {
+  if (Capacitor.isNativePlatform()) {
+    const res = await axios.get(`${QOBUZ_API}playlist/addTracks`, {
+      params: { playlist_id: playlistId, track_ids: trackIds },
+      headers: { 'x-app-id': qobuzAppId, 'x-user-auth-token': qobuzToken || undefined }
+    });
+    return res.data;
+  }
+  return { success: true };
+};
+
+export const createPlaylist = async (name: string, description: string = '') => {
+  if (Capacitor.isNativePlatform()) {
+    const res = await axios.get(`${QOBUZ_API}playlist/create`, {
+      params: { name, description },
+      headers: { 'x-app-id': qobuzAppId, 'x-user-auth-token': qobuzToken || undefined }
+    });
+    return res.data;
+  }
+  return { success: true };
+};

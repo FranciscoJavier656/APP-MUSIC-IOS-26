@@ -225,6 +225,11 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
               duration: track.duration || 0,
             });
             store.setState({ isPlaying: true, isLoading: false });
+            
+            // Report Playback to Qobuz for stats/royalties
+            import('./qobuz').then(({ reportTrackPlay }) => {
+              reportTrackPlay(track.id.toString(), track.duration || 30).catch(() => {});
+            });
           } catch (playErr) {
             console.error('Native playback error:', playErr);
             store.setState({ isLoading: false });
@@ -236,6 +241,10 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
           if (playPromise !== undefined) {
             playPromise.catch((error) => console.log('Playback interrupted:', error));
             store.setState({ isPlaying: true });
+            
+            import('./qobuz').then(({ reportTrackPlay }) => {
+              reportTrackPlay(track.id.toString(), track.duration || 30).catch(() => {});
+            });
           }
         }
       }
@@ -354,7 +363,25 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
       if (repeatMode === 'all') {
         nextIndex = 0;
       } else {
-        store.setState({ isPlaying: false });
+        // Infinity Play (Autoplay)
+        import('./qobuz').then(({ getSimilarTracks }) => {
+            getSimilarTracks(currentTrack.id, 20).then(res => {
+                const similar = res?.tracks?.items || res?.items || [];
+                if (similar.length > 0) {
+                    // Filter out tracks already in queue
+                    const newTracks = similar.filter((t: any) => !queue.some((q) => q.id === t.id));
+                    if (newTracks.length > 0) {
+                        const newQueue = [...queue, ...newTracks];
+                        store.setState({ queue: newQueue });
+                        playTrack(newTracks[0]);
+                        return;
+                    }
+                }
+                store.setState({ isPlaying: false });
+            }).catch(() => {
+                store.setState({ isPlaying: false });
+            });
+        });
         return;
       }
     }
