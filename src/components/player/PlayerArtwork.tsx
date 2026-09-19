@@ -311,10 +311,16 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               if (activeChild) {
                   // LERP Parallax Scrolling or Manual Override
                   const containerHeight = lyricsContainerRef.current.parentElement?.clientHeight || 0;
-                  const targetY = activeChild.offsetTop - (containerHeight / 2) + (activeChild.clientHeight / 2);
+                  let targetY = activeChild.offsetTop - (containerHeight / 2) + (activeChild.clientHeight / 2);
+                  if (targetY < 0) targetY = 0;
                   
                   if (!isManualScrollingRef.current) {
-                      currentScrollY += (targetY - currentScrollY) * 0.08; // Factor de suavidad
+                      if (Math.abs(targetY - currentScrollY) > 300) {
+                          currentScrollY = targetY; // Snap if distance is too large
+                      } else {
+                          currentScrollY += (targetY - currentScrollY) * 0.08; // Factor de suavidad
+                      }
+                      
                       if (lyricsContainerRef.current.parentElement) {
                           lyricsContainerRef.current.parentElement.scrollTop = currentScrollY;
                       }
@@ -551,7 +557,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   className="overflow-y-auto flex-1 text-center relative no-scrollbar" 
                   style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}
                 >
-                  <div className="flex flex-col items-center px-4 pt-[45vh] pb-[45vh]" ref={lyricsContainerRef}>
+                  <div className="flex flex-col items-center px-4 pt-[50vh] pb-[50vh]" ref={lyricsContainerRef}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
