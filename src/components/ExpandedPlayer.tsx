@@ -240,7 +240,7 @@ export default function ExpandedPlayer() {
             </button>
             <motion.button 
               whileTap={{ scale: 0.8 }}
-              onClick={handleFavoriteToggle}
+              onClick={handleFavoriteClick}
               className="w-10 h-10 flex-shrink-0 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center hover:bg-black/10 dark:hover:bg-white/20 transition-colors"
             >
               <Heart className={`w-5 h-5 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-black dark:text-white'}`} />
