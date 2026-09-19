@@ -5,6 +5,7 @@
 #import <Capacitor/CAPBridgedJSTypes.h>
 #import <Capacitor/Capacitor-Swift.h>
 #import <AVFoundation/AVFoundation.h>
+#import <AVKit/AVKit.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <MediaToolbox/MediaToolbox.h>
 #import <Accelerate/Accelerate.h>
