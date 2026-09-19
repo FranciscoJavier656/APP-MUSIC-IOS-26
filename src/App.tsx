@@ -129,6 +129,11 @@ function AppContent() {
         setActiveTab(detail);
       }
     };
+    const handleWindowNavigate = (e: any) => {
+      if (e.detail) {
+        setActiveTab(e.detail);
+      }
+    };
     const handleHide = () => {
       // DIRECT OVERRIDE: Bypass Capacitor for instant iOS 26 UI hide
       try {
@@ -158,10 +163,12 @@ function AppContent() {
       }
     };
     bus.on('navigate', handleNavigate);
+    window.addEventListener('navigate', handleWindowNavigate);
     bus.on('tabbar:hide', handleHide);
     bus.on('tabbar:show', handleShow);
     return () => {
       bus.off('navigate', handleNavigate);
+      window.removeEventListener('navigate', handleWindowNavigate);
       bus.off('tabbar:hide', handleHide);
       bus.off('tabbar:show', handleShow);
     };
