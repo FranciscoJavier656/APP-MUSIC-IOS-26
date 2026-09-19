@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getImageSrc } from '../lib/image';
 import { OfflineImage } from './OfflineImage';
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import bus from '../lib/eventBus';
 
 const isNative = Capacitor.isNativePlatform();
 const LiquidTabBarNative: any = isNative ? registerPlugin('LiquidTabBar') : null;
@@ -33,12 +34,12 @@ export default function MiniPlayer() {
     const handleToggle = () => togglePlay();
     const handleExpand = () => setIsExpanded(true);
     
-    document.addEventListener('toggle-play-from-native', handleToggle);
-    document.addEventListener('expand-player-from-native', handleExpand);
+    bus.on('toggle-play', handleToggle);
+    bus.on('expand-player', handleExpand);
     
     return () => {
-      document.removeEventListener('toggle-play-from-native', handleToggle);
-      document.removeEventListener('expand-player-from-native', handleExpand);
+      bus.off('toggle-play', handleToggle);
+      bus.off('expand-player', handleExpand);
     };
   }, [togglePlay, setIsExpanded]);
 

@@ -72,16 +72,17 @@ export default function LibraryTab() {
                           : activeTab === 'artists' ? 'offline_library_artists'
                           : 'offline_library_playlists';
         
-        const dataStr = localStorage.getItem(storageKey);
-        if (dataStr) {
-          const obj = JSON.parse(dataStr);
+        const storage = await import('../lib/storage');
+        const obj = await storage.getItem<any>(storageKey);
+        
+        if (obj) {
           const arr = Object.values(obj).sort((a: any, b: any) => (b.downloadedAt || 0) - (a.downloadedAt || 0));
           setOfflineData(arr);
         } else {
           // Fallback backward compatibility for tracks
           if (activeTab === 'tracks') {
-            const oldStr = localStorage.getItem('offline_tracks');
-            setOfflineData(oldStr ? Object.values(JSON.parse(oldStr)) : []);
+            const oldObj = await storage.getOfflineTracks();
+            setOfflineData(oldObj ? Object.values(oldObj) : []);
           } else {
             setOfflineData([]);
           }
@@ -102,8 +103,14 @@ export default function LibraryTab() {
     const handleUpdate = () => {
       if (libraryMode === 'descargados') loadData();
     };
-    window.addEventListener('offline-library-updated', handleUpdate);
-    return () => window.removeEventListener('offline-library-updated', handleUpdate);
+    import('../lib/eventBus').then(({ default: bus }) => {
+      bus.on('offline-library-updated', handleUpdate);
+    });
+    return () => {
+      import('../lib/eventBus').then(({ default: bus }) => {
+        bus.off('offline-library-updated', handleUpdate);
+      });
+    };
   }, [libraryMode, activeTab]);
 
   const tabs = [
@@ -323,9 +330,11 @@ export default function LibraryTab() {
                   className={`w-[52px] h-[52px] bg-gray-800 ${item.type === 'artist' ? 'rounded-full' : 'rounded-md'} overflow-hidden flex-shrink-0 relative`}
                   onClick={() => {
     if (libraryMode === 'streaming') {
-      if (item.type === 'album') document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'album', id: item.id } }));
-      if (item.type === 'artist') document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'artist', id: item.id } }));
-      if (item.type === 'playlist') document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'playlist', id: item.id } }));
+      import('../lib/eventBus').then(({ default: bus }) => {
+        if (item.type === 'album') bus.emit('open-overlay', { type: 'album', id: item.id });
+        if (item.type === 'artist') bus.emit('open-overlay', { type: 'artist', id: item.id });
+        if (item.type === 'playlist') bus.emit('open-overlay', { type: 'playlist', id: item.id });
+      });
     } else {
       if (item.type === 'album') setSelectedAlbum(item);
       if (item.type === 'artist') setSelectedArtist(item);
@@ -349,9 +358,11 @@ export default function LibraryTab() {
                   className="flex-1 min-w-0" 
                   onClick={() => {
     if (libraryMode === 'streaming') {
-      if (item.type === 'album') document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'album', id: item.id } }));
-      if (item.type === 'artist') document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'artist', id: item.id } }));
-      if (item.type === 'playlist') document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'playlist', id: item.id } }));
+      import('../lib/eventBus').then(({ default: bus }) => {
+        if (item.type === 'album') bus.emit('open-overlay', { type: 'album', id: item.id });
+        if (item.type === 'artist') bus.emit('open-overlay', { type: 'artist', id: item.id });
+        if (item.type === 'playlist') bus.emit('open-overlay', { type: 'playlist', id: item.id });
+      });
     } else {
       if (item.type === 'album') setSelectedAlbum(item);
       if (item.type === 'artist') setSelectedArtist(item);

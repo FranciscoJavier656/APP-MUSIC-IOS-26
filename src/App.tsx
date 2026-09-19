@@ -20,6 +20,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 
 const isNative = Capacitor.isNativePlatform();
 const LiquidTabBarNative = isNative ? registerPlugin('LiquidTabBar') : null;
+import bus from './lib/eventBus';
 
 
 class RootErrorBoundary extends React.Component {
@@ -89,10 +90,10 @@ function AppContent() {
 
     // Listen for native tab changes from SwiftUI TabView → React
     const handleNativeTogglePlay = () => {
-      document.dispatchEvent(new CustomEvent('toggle-play-from-native'));
+      bus.emit('toggle-play');
     };
     const handleNativeExpandPlayer = () => {
-      document.dispatchEvent(new CustomEvent('expand-player-from-native'));
+      bus.emit('expand-player');
     };
     
     document.addEventListener('native-toggle-play', handleNativeTogglePlay);
@@ -111,11 +112,11 @@ function AppContent() {
   }, [activeTab, useNativeTabBar]);
 
   useEffect(() => {
-    const handleGlobalOverlay = (e: any) => {
-      setGlobalOverlay(e.detail);
+    const handleGlobalOverlay = (detail: any) => {
+      setGlobalOverlay(detail);
     };
-    document.addEventListener('open-overlay', handleGlobalOverlay);
-    return () => document.removeEventListener('open-overlay', handleGlobalOverlay);
+    bus.on('open-overlay', handleGlobalOverlay);
+    return () => bus.off('open-overlay', handleGlobalOverlay);
   }, []);
 
 
@@ -123,9 +124,9 @@ function AppContent() {
   useEffect(() => { globalOverlayRef.current = globalOverlay; }, [globalOverlay]);
 
   useEffect(() => {
-    const handleNavigate = (e: any) => {
-      if (e.detail) {
-        setActiveTab(e.detail);
+    const handleNavigate = (detail: any) => {
+      if (detail) {
+        setActiveTab(detail);
       }
     };
     const handleHide = () => {
@@ -156,27 +157,20 @@ function AppContent() {
         if (LiquidTabBarNative.show) LiquidTabBarNative.show().catch(() => {});
       }
     };
-    window.addEventListener('navigate', handleNavigate);
-    document.addEventListener('navigate', handleNavigate);
-    window.addEventListener('tabbar:hide', handleHide);
-    window.addEventListener('tabbar:show', handleShow);
-    document.addEventListener('tabbar:hide', handleHide as any);
-    document.addEventListener('tabbar:show', handleShow as any);
+    bus.on('navigate', handleNavigate);
+    bus.on('tabbar:hide', handleHide);
+    bus.on('tabbar:show', handleShow);
     return () => {
-      window.removeEventListener('navigate', handleNavigate);
-      document.removeEventListener('navigate', handleNavigate);
-      window.removeEventListener('tabbar:hide', handleHide);
-      window.removeEventListener('tabbar:show', handleShow);
-      document.removeEventListener('tabbar:hide', handleHide as any);
-      document.removeEventListener('tabbar:show', handleShow as any);
+      bus.off('navigate', handleNavigate);
+      bus.off('tabbar:hide', handleHide);
+      bus.off('tabbar:show', handleShow);
     };
   }, [useNativeTabBar]);
 
   useEffect(() => {
     (window as any).isGlobalOverlayActive = !!globalOverlay;
     if (globalOverlay) {
-      window.dispatchEvent(new CustomEvent('tabbar:hide'));
-      document.dispatchEvent(new CustomEvent('tabbar:hide'));
+      bus.emit('tabbar:hide');
       try { 
         if (Capacitor.isNativePlatform()) { 
           const lt = registerPlugin('LiquidTabBar'); 
@@ -189,8 +183,7 @@ function AppContent() {
       } catch(e){}
     } else {
       if ((window as any).isPlayerExpanded) return;
-      window.dispatchEvent(new CustomEvent('tabbar:show'));
-      document.dispatchEvent(new CustomEvent('tabbar:show'));
+      bus.emit('tabbar:show');
       try { 
         if (Capacitor.isNativePlatform()) { 
           const lt = registerPlugin('LiquidTabBar'); 
@@ -205,18 +198,21 @@ function AppContent() {
   }, [globalOverlay]);
 
   
-  const [isDarkMode, setIsDarkMode] = useState(() => {
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
     if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('theme') === 'dark' || 
-           (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      } catch (e) {
-        console.warn("Storage error", e);
-        return false;
-      }
+      import('./lib/storage').then((storage) => {
+        storage.getTheme().then((theme) => {
+          if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            setIsDarkMode(true);
+          } else {
+            setIsDarkMode(false);
+          }
+        });
+      });
     }
-    return false;
-  });
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -230,10 +226,10 @@ function AppContent() {
     try {
       if (isDarkMode) {
         document.documentElement.classList.add('dark');
-        localStorage.setItem('theme', 'dark');
+        import('./lib/storage').then(s => s.setTheme('dark'));
       } else {
         document.documentElement.classList.remove('dark');
-        localStorage.setItem('theme', 'light');
+        import('./lib/storage').then(s => s.setTheme('light'));
       }
     } catch(e) {
       console.warn("Storage error", e);

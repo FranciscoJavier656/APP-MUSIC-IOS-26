@@ -21,11 +21,10 @@ export default function DownloadsTab() {
   const { activeDownloads } = useDownloads();
   const activeDownloadList = Object.values(activeDownloads);
 
-  const loadOfflineLibrary = () => {
+  const loadOfflineLibrary = async () => {
     try {
-      const tracksStr = localStorage.getItem('offline_tracks');
-      if (tracksStr) {
-        const tracksObj = JSON.parse(tracksStr);
+      const tracksObj = await import('../lib/storage').then(s => s.getOfflineTracks());
+      if (tracksObj) {
         const tracks = Object.values(tracksObj).sort((a: any, b: any) => {
           return (b.downloadedAt || 0) - (a.downloadedAt || 0);
         });
@@ -43,8 +42,14 @@ export default function DownloadsTab() {
   useEffect(() => {
     loadOfflineLibrary();
     const handleUpdate = () => loadOfflineLibrary();
-    window.addEventListener('offline-library-updated', handleUpdate);
-    return () => window.removeEventListener('offline-library-updated', handleUpdate);
+    import('../lib/eventBus').then(({ default: bus }) => {
+      bus.on('offline-library-updated', handleUpdate);
+    });
+    return () => {
+      import('../lib/eventBus').then(({ default: bus }) => {
+        bus.off('offline-library-updated', handleUpdate);
+      });
+    };
   }, []);
 
   const formatBytes = (bytes: number): string => {
@@ -107,27 +112,24 @@ export default function DownloadsTab() {
     const removeTrack = async (trackId: string) => {
     if (window.confirm("¿Seguro que deseas eliminar esta descarga?")) {
       try {
-        const tracksStr = localStorage.getItem('offline_library_tracks');
-        if (tracksStr) {
-          const tracksObj = JSON.parse(tracksStr);
-          if (tracksObj[trackId]) {
-              const lp = tracksObj[trackId].original?.localPath || tracksObj[trackId].localPath;
-              delete tracksObj[trackId];
-              localStorage.setItem('offline_library_tracks', JSON.stringify(tracksObj));
-              
-              if (lp) {
-                  try {
-                      await Filesystem.deleteFile({ directory: Directory.Data, path: lp.replace('file://', '') });
-                  } catch(e){}
-              }
+        const storage = await import('../lib/storage');
+        const tracksObj = await storage.getOfflineLibraryTracks();
+        if (tracksObj && tracksObj[trackId]) {
+          const lp = tracksObj[trackId].original?.localPath || tracksObj[trackId].localPath;
+          delete tracksObj[trackId];
+          await storage.setOfflineLibraryTracks(tracksObj);
+          
+          if (lp) {
+              try {
+                  await Filesystem.deleteFile({ directory: Directory.Data, path: lp.replace('file://', '') });
+              } catch(e){}
           }
         }
         
-        const oldStr = localStorage.getItem('offline_tracks');
-        if (oldStr) {
-           const oldObj = JSON.parse(oldStr);
+        const oldObj = await storage.getOfflineTracks();
+        if (oldObj && oldObj[trackId]) {
            delete oldObj[trackId];
-           localStorage.setItem('offline_tracks', JSON.stringify(oldObj));
+           await storage.setOfflineTracks(oldObj);
         }
         
         loadOfflineLibrary();
@@ -135,9 +137,10 @@ export default function DownloadsTab() {
     }
   };
 
-  const clearCompleted = () => {
+  const clearCompleted = async () => {
     if (window.confirm("¿Seguro que deseas eliminar TODAS las descargas completadas?")) {
-      localStorage.removeItem('offline_tracks');
+      const storage = await import('../lib/storage');
+      await storage.removeItem('offline_tracks');
       setOfflineTracks([]);
     }
   };

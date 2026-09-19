@@ -1,8 +1,12 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import axios from 'axios';
 import { QobuzAudio } from './QobuzAudioPlugin';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { getQobuzTrackUrl } from './qobuz';
+import bus from './eventBus';
+import * as storage from './storage';
+
+const YagamiNative = Capacitor.isNativePlatform() ? registerPlugin('YagamiDownloadManager') : null;
 
 // --- TIPO DE DATOS ---
 interface QueueItem {
@@ -32,20 +36,14 @@ class DownloadQueueManager {
     this.activeDownloads++;
     const item = this.queue.shift()!;
     
-    // Disparar estado de que empezó a descargar (si estaba en cola)
-    window.dispatchEvent(new CustomEvent('download_state', {
-      detail: { trackId: item.track.id.toString(), status: 'downloading' }
-    }));
+    bus.emit('download_state', { trackId: item.track.id.toString(), status: 'downloading' });
 
     try {
       await processSingleDownload(item.track, item.formatId, item.ext);
       item.resolve(true);
     } catch (e) {
       console.error("Queue process error for track:", item.track.id, e);
-      // Faltaba disparar el error para que la UI se entere si falla antes de descargar
-      window.dispatchEvent(new CustomEvent('download_error', { 
-        detail: { trackId: item.track.id.toString(), error: (e as any).message || "Error al procesar" } 
-      }));
+      bus.emit('download_error', { trackId: item.track.id.toString(), error: (e as any).message || "Error al procesar" });
       item.resolve(false);
     } finally {
       this.activeDownloads--;
@@ -55,27 +53,43 @@ class DownloadQueueManager {
 }
 
 const queueManager = new DownloadQueueManager();
-const downloadMap: Record<string, string> = {};
 
-if (Capacitor.isNativePlatform()) {
-  Filesystem.addListener('progress', (progress) => {
-    const trackId = downloadMap[progress.url];
-    if (trackId) {
-      let percent = 0;
-      if (progress.contentLength === 0) {
-        percent = progress.bytes / 10_000_000; // Fake estimate if unknown
-      } else {
-        percent = Math.min(progress.bytes / progress.contentLength, 0.95);
-      }
-      window.dispatchEvent(new CustomEvent('download_progress', {
-        detail: { trackId, progress: percent, bytes: progress.bytes, total: progress.contentLength }
-      }));
-    }
+// Native Progress Listener is now handled inside DownloadContext via native plugin events
+// BUT the plugin already fires events named onDownloadProgress, onDownloadStateChange, etc.
+// We need to bridge them to our eventBus.
+if (Capacitor.isNativePlatform() && YagamiNative) {
+  YagamiNative.addListener('onDownloadProgress', (info: any) => {
+    bus.emit('download_progress', { 
+      trackId: info.trackId, 
+      progress: info.progress, 
+      bytes: info.bytes || 0, 
+      total: info.total || 0 
+    });
+  });
+
+  YagamiNative.addListener('onDownloadStateChange', (info: any) => {
+    bus.emit('download_state', { trackId: info.trackId, status: info.status });
+  });
+
+  YagamiNative.addListener('onDownloadCompleted', async (info: any) => {
+    // The native plugin downloaded the file and sent the local path
+    const trackId = info.trackId;
+    
+    // We should ideally pass track metadata to native plugin, and let it add to library,
+    // or fetch from memory if we kept it. For now, we will handle metadata addition 
+    // inside processSingleDownload which awaits the YagamiNative.downloadTrack promise
+    // if we choose to make downloadTrack awaitable. But background downloads run asynchronously.
+    // If we use background sessions, YagamiNative.downloadTrack returns {status: 'queued'}
+    // We will just let the plugin download the audio.
+  });
+
+  YagamiNative.addListener('onDownloadError', (info: any) => {
+    bus.emit('download_error', { trackId: info.trackId, error: info.error });
   });
 }
 
-// --- LOGICA DE METADATOS (IDÉNTICA A REDUX ORIGINAL) ---
-const addMetadataToLibrary = (trackWithLocalPath: any) => {
+// --- LOGICA DE METADATOS ---
+export const addMetadataToLibrary = async (trackWithLocalPath: any) => {
   try {
     const trackId = trackWithLocalPath.id.toString();
     const trackTitle = trackWithLocalPath.title || 'Unknown';
@@ -85,7 +99,7 @@ const addMetadataToLibrary = (trackWithLocalPath: any) => {
     const albumId = trackWithLocalPath.album?.id?.toString() || albumTitle;
 
     // 1. Guardar el Track
-    const offlineTracks = JSON.parse(localStorage.getItem('offline_library_tracks') || '{}');
+    const offlineTracks = await storage.getOfflineLibraryTracks();
     offlineTracks[trackId] = {
       id: trackId,
       title: trackTitle,
@@ -95,15 +109,15 @@ const addMetadataToLibrary = (trackWithLocalPath: any) => {
       original: trackWithLocalPath,
       downloadedAt: Date.now()
     };
-    localStorage.setItem('offline_library_tracks', JSON.stringify(offlineTracks));
+    await storage.setOfflineLibraryTracks(offlineTracks);
     
     // Por retrocompatibilidad (para la pestaña Downloads)
-    const oldTracks = JSON.parse(localStorage.getItem('offline_tracks') || '{}');
+    const oldTracks = await storage.getOfflineTracks();
     oldTracks[trackId] = trackWithLocalPath;
-    localStorage.setItem('offline_tracks', JSON.stringify(oldTracks));
+    await storage.setOfflineTracks(oldTracks);
 
     // 2. Guardar el Album
-    const offlineAlbums = JSON.parse(localStorage.getItem('offline_library_albums') || '{}');
+    const offlineAlbums = await storage.getOfflineLibraryAlbums();
     if (!offlineAlbums[albumId]) {
       offlineAlbums[albumId] = {
         id: albumId,
@@ -119,10 +133,10 @@ const addMetadataToLibrary = (trackWithLocalPath: any) => {
     } else {
       offlineAlbums[albumId].trackCount += 1;
     }
-    localStorage.setItem('offline_library_albums', JSON.stringify(offlineAlbums));
+    await storage.setOfflineLibraryAlbums(offlineAlbums);
 
     // 3. Guardar el Artista
-    const offlineArtists = JSON.parse(localStorage.getItem('offline_library_artists') || '{}');
+    const offlineArtists = await storage.getOfflineLibraryArtists();
     if (!offlineArtists[artistId]) {
       offlineArtists[artistId] = {
         id: artistId,
@@ -136,17 +150,16 @@ const addMetadataToLibrary = (trackWithLocalPath: any) => {
     } else {
       offlineArtists[artistId].trackCount += 1;
     }
-    localStorage.setItem('offline_library_artists', JSON.stringify(offlineArtists));
+    await storage.setOfflineLibraryArtists(offlineArtists);
 
     // Notificar UI
-    window.dispatchEvent(new CustomEvent('offline-library-updated'));
+    bus.emit('offline-library-updated');
   } catch (e) {
     console.error('Error saving metadata to library components', e);
   }
 };
 
 export const downloadFileWeb = async (url: string, filename: string) => {
-  // Override global timeout to 0 (no timeout) for large file downloads
   const res = await axios.get(url, { responseType: 'blob', timeout: 0 });
   const blobUrl = URL.createObjectURL(res.data);
   const a = document.createElement('a');
@@ -158,7 +171,6 @@ export const downloadFileWeb = async (url: string, filename: string) => {
   URL.revokeObjectURL(blobUrl);
 };
 
-// Logica interna del proceso de descarga
 const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
   try {
     return await fn();
@@ -179,25 +191,10 @@ const processSingleDownload = async (track: any, formatId: string, ext: string):
     return res;
   });
   
-  if (Capacitor.isNativePlatform()) {
-    downloadMap[url] = trackId;
-    const filename = `${trackId}.${ext}`;
-    
+  if (Capacitor.isNativePlatform() && YagamiNative) {
     try {
-      await withRetry(async () => {
-         await Filesystem.downloadFile({
-           url: url,
-           path: `Downloads/${filename}`,
-           directory: Directory.Data,
-           progress: true
-         });
-      }, 3, 3000);
+      const filename = `${trackId}.${ext}`;
       
-      window.dispatchEvent(new CustomEvent('download_state', { detail: { trackId, status: 'processing_metadata' } }));
-      
-      window.dispatchEvent(new CustomEvent('download_state', { detail: { trackId, status: 'importing_library' } }));
-      
-      // Organizar metadatos en las 3 secciones (Albums, Artistas, Tracks)
       let localCoverPath = null;
       try {
         const coverUrlObj = track.album?.image || track.image;
@@ -218,26 +215,32 @@ const processSingleDownload = async (track: any, formatId: string, ext: string):
          console.warn("Could not download cover", ce);
       }
 
-      let sizeBytes = 0;
-      try {
-         const stat = await Filesystem.stat({ directory: Directory.Data, path: `Downloads/${filename}` });
-         sizeBytes = stat.size;
-      } catch(e) {}
+      // We call the native plugin to handle the background download.
+      // It returns immediately with { status: "queued", trackId }
+      await YagamiNative.downloadTrack({
+        url: url,
+        trackId: trackId,
+        format: ext,
+        title: track.title,
+        artist: track.artist?.name || track.performer?.name,
+        album: track.album?.title,
+        artworkUrl: track.album?.image?.large || track.image?.large
+      });
 
+      // We don't await the end here anymore because the native side is handling it asynchronously
+      // and will fire events. But we still add metadata right now so the app knows it exists.
       const trackWithLocalPath = {
         ...track,
         localPath: `Downloads/${filename}`,
         localCoverPath: localCoverPath,
-        sizeBytes: sizeBytes,
+        sizeBytes: 0, // Not immediately known
         downloadedAt: Date.now()
       };
       
-      addMetadataToLibrary(trackWithLocalPath);
-      
-      window.dispatchEvent(new CustomEvent('download_state', { detail: { trackId, status: 'organizing' } }));
-      
-      window.dispatchEvent(new CustomEvent('download_state', { detail: { trackId, status: 'completed' } }));
-            try {
+      await addMetadataToLibrary(trackWithLocalPath);
+
+      // Optionally fetch lyrics while it downloads
+      try {
         const trackTitle = track.title || '';
         const trackArtist = track.artist?.name || track.performer?.name || '';
         const lrclibUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(trackTitle)}&artist_name=${encodeURIComponent(trackArtist)}`;
@@ -254,15 +257,13 @@ const processSingleDownload = async (track: any, formatId: string, ext: string):
         console.log("Lyrics embedding failed or skipped", e);
       }
       
-      delete downloadMap[url];
     } catch (e: any) {
       let errorMsg = e.message || 'Error nativo';
       const msgLower = errorMsg.toLowerCase();
       if (msgLower.includes('space') || msgLower.includes('quota') || msgLower.includes('full')) {
         errorMsg = "Almacenamiento lleno. Por favor, libera espacio.";
       }
-      window.dispatchEvent(new CustomEvent('download_error', { detail: { trackId, error: errorMsg } }));
-      delete downloadMap[url];
+      bus.emit('download_error', { trackId, error: errorMsg });
       throw e;
     }
   } else {
@@ -270,18 +271,17 @@ const processSingleDownload = async (track: any, formatId: string, ext: string):
     const filename = `${track.track_number?.toString().padStart(2, '0') || '01'} - ${(track.title || 'Track').replace(/[/\\?+%*:_|"<>]/g, '-')}.${ext}`;
     await downloadFileWeb(url, filename);
     
-    // Añadimos metadatos también en Web para que aparezca en la pestaña de descargas
+    // Añadimos metadatos también en Web
     const trackWithLocalPath = {
       ...track,
       localPath: '',
       downloadedAt: Date.now()
     };
-    addMetadataToLibrary(trackWithLocalPath);
-    window.dispatchEvent(new CustomEvent('download_state', { detail: { trackId: track.id.toString(), status: 'completed' } }));
+    await addMetadataToLibrary(trackWithLocalPath);
+    bus.emit('download_state', { trackId: track.id.toString(), status: 'completed' });
   }
 };
 
-// ENTRADA PRINCIPAL ENRUTADA (LA QUE LLAMA LA UI)
 export const downloadTrackRouted = async (
   track: any, 
   formatId: string, 
@@ -289,18 +289,14 @@ export const downloadTrackRouted = async (
 ): Promise<boolean> => {
   try {
     if (Capacitor.isNativePlatform()) {
-      // Si es nativo, encolamos y devolvemos true INMEDIATAMENTE para liberar la UI, 
-      // la UI ya puso el track en 'queued' vía DownloadContext.
       queueManager.enqueue(track, formatId, ext);
       return true;
     } else {
-      console.log(`[Web] Procesando descarga web: ${track.title}`);
       await processSingleDownload(track, formatId, ext);
       return true;
     }
   } catch (e: any) {
-    console.error("Fallo al descargar track", track.id, e);
-    window.dispatchEvent(new CustomEvent('download_error', { detail: { trackId: track.id.toString(), error: e.message || "Error" } }));
+    bus.emit('download_error', { trackId: track.id.toString(), error: e.message || "Error" });
     return false;
   }
 };

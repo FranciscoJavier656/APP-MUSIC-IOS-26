@@ -260,7 +260,7 @@ export default function ArtistView({ artistId, onBack }: ArtistViewProps) {
                 <motion.div variants={itemVariants} 
                   key={album.id}
                   onClick={() => {
-                    document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'album', id: album.id || album.qobuz_id } }));
+                    import('../lib/eventBus').then(({ default: bus }) => bus.emit('open-overlay', { type: 'album', id: album.id || album.qobuz_id }));
                   }}
                   className="cursor-pointer group"
                 >

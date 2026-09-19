@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
+import bus from './eventBus';
 
 export interface ActiveDownload {
   trackId: string;
@@ -25,55 +26,55 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    const handleProgress = (e: any) => {
+    const handleProgress = (detail: any) => {
       setActiveDownloads(prev => {
-        if (!prev[e.detail.trackId]) return prev;
+        if (!prev[detail.trackId]) return prev;
         return {
           ...prev,
-          [e.detail.trackId]: { ...prev[e.detail.trackId], status: 'downloading', progress: e.detail.progress, bytes: e.detail.bytes, total: e.detail.total }
+          [detail.trackId]: { ...prev[detail.trackId], status: 'downloading', progress: detail.progress, bytes: detail.bytes, total: detail.total }
         };
       });
     };
 
-    const handleState = (e: any) => {
+    const handleState = (detail: any) => {
       setActiveDownloads(prev => {
-        if (!prev[e.detail.trackId]) return prev;
+        if (!prev[detail.trackId]) return prev;
         return {
           ...prev,
-          [e.detail.trackId]: { ...prev[e.detail.trackId], status: e.detail.status, progress: e.detail.status === 'downloading' ? 0 : 1 }
+          [detail.trackId]: { ...prev[detail.trackId], status: detail.status, progress: detail.status === 'downloading' ? 0 : 1 }
         };
       });
 
-      if (e.detail.status === 'completed') {
+      if (detail.status === 'completed') {
         setTimeout(() => {
           setActiveDownloads(prev => {
             const next = { ...prev };
-            delete next[e.detail.trackId];
+            delete next[detail.trackId];
             return next;
           });
-          window.dispatchEvent(new CustomEvent('offline-library-updated'));
+          bus.emit('offline-library-updated');
         }, 3000);
       }
     };
 
-    const handleError = (e: any) => {
+    const handleError = (detail: any) => {
       setActiveDownloads(prev => {
-        if (!prev[e.detail.trackId]) return prev;
+        if (!prev[detail.trackId]) return prev;
         return {
           ...prev,
-          [e.detail.trackId]: { ...prev[e.detail.trackId], status: 'error', error: e.detail.error }
+          [detail.trackId]: { ...prev[detail.trackId], status: 'error', error: detail.error }
         };
       });
     };
 
-    window.addEventListener('download_progress', handleProgress);
-    window.addEventListener('download_state', handleState);
-    window.addEventListener('download_error', handleError);
+    bus.on('download_progress', handleProgress);
+    bus.on('download_state', handleState);
+    bus.on('download_error', handleError);
 
     return () => {
-      window.removeEventListener('download_progress', handleProgress);
-      window.removeEventListener('download_state', handleState);
-      window.removeEventListener('download_error', handleError);
+      bus.off('download_progress', handleProgress);
+      bus.off('download_state', handleState);
+      bus.off('download_error', handleError);
     };
   }, []);
 

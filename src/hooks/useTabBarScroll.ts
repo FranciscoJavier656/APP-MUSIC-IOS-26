@@ -16,7 +16,7 @@ export function useTabBarScroll() {
       lastScrollY.current = currentY;
       if (isHidden.current) {
         isHidden.current = false;
-        window.dispatchEvent(new CustomEvent('tabbar:show'));
+        import('../lib/eventBus').then(({ default: bus }) => bus.emit('tabbar:show'));
       }
       return;
     }
@@ -24,11 +24,11 @@ export function useTabBarScroll() {
     if (deltaY > 10 && !isHidden.current) {
       // Scrolling down -> hide Tab Bar
       isHidden.current = true;
-      window.dispatchEvent(new CustomEvent('tabbar:hide'));
+      import('../lib/eventBus').then(({ default: bus }) => bus.emit('tabbar:hide'));
     } else if (deltaY < -10 && isHidden.current) {
       // Scrolling up -> show Tab Bar
       isHidden.current = false;
-      window.dispatchEvent(new CustomEvent('tabbar:show'));
+      import('../lib/eventBus').then(({ default: bus }) => bus.emit('tabbar:show'));
     }
     
     lastScrollY.current = currentY;
