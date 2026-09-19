@@ -24,6 +24,7 @@ interface PlayerContextType {
   isExpanded: boolean;
   setIsExpanded: (expanded: boolean) => void;
   playTrack: (track: Track, queue?: Track[]) => void;
+  setQueue: (queue: Track[]) => void;
   togglePlay: () => void;
   seekTo: (time: number) => void;
   setVolume: (volume: number) => void;
@@ -48,8 +49,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Initialize audio engine once on mount
   useEffect(() => {
     cleanupRef.current = initPlayerEngine(audioRef);
+    
+    // Listen for custom events from other components (like Sleep Timer)
+    const handlePausePlayback = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+    document.addEventListener('pause-playback', handlePausePlayback);
+
     return () => {
       if (cleanupRef.current) cleanupRef.current();
+      document.removeEventListener('pause-playback', handlePausePlayback);
     };
   }, []);
 
@@ -69,6 +80,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     isExpanded: state.isExpanded,
     setIsExpanded: state.setIsExpanded,
     playTrack: state.playTrack,
+    setQueue: state.setQueue,
     togglePlay: state.togglePlay,
     seekTo: state.seekTo,
     setVolume: state.setVolume,

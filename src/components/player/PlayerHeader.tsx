@@ -31,9 +31,6 @@ export default function PlayerHeader({ onClose, onOpenEQ, onOpenQueue }: PlayerH
           <button onClick={onOpenEQ} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
             <SlidersHorizontal className="w-6 h-6 text-black dark:text-white" />
           </button>
-          <button onClick={() => setContextMenuTrack({ item: currentTrack, type: 'track' })} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
-            <MoreHorizontal className="w-6 h-6 text-black dark:text-white" />
-          </button>
           <button onClick={onOpenQueue} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
             <ListMusic className="w-6 h-6 text-black dark:text-white" />
           </button>

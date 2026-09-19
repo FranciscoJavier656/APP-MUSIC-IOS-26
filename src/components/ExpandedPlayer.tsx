@@ -1,11 +1,12 @@
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, Info, Download, MoreHorizontal } from 'lucide-react';
+import { ChevronDown, Info, Download, MoreHorizontal, Heart, Cast, Timer } from 'lucide-react';
 import EqualizerPanel from './EqualizerPanel';
 import { usePlayer } from './PlayerContext';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { getImageSrc } from '../lib/image';
 import { OfflineImage } from './OfflineImage';
+import { toggleFavoriteTrack } from '../lib/qobuz';
 
 import PlayerHeader from './player/PlayerHeader';
 import PlayerArtwork from './player/PlayerArtwork';
@@ -16,13 +17,49 @@ export default function ExpandedPlayer() {
   const { 
     currentTrack, playTrack,
     isExpanded, setIsExpanded,
-    queue, setContextMenuTrack, setDownloadItem
+    queue, setQueue, setContextMenuTrack, setDownloadItem
   } = usePlayer();
 
   const [dominantColor, setDominantColor] = useState<string | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [showEQ, setShowEQ] = useState(false);
+  
+  const [isFavorite, setIsFavorite] = useState(false);
+  
+  const [sleepTimer, setSleepTimer] = useState<number | null>(null);
+  const sleepTimerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const toggleSleepTimer = () => {
+    // Cycle: null -> 15 -> 30 -> 60 -> null
+    const nextTimer = sleepTimer === null ? 15 : sleepTimer === 15 ? 30 : sleepTimer === 30 ? 60 : null;
+    setSleepTimer(nextTimer);
+    
+    if (sleepTimerTimeoutRef.current) clearTimeout(sleepTimerTimeoutRef.current);
+    
+    if (nextTimer !== null) {
+      sleepTimerTimeoutRef.current = setTimeout(() => {
+        // Pause playback when timer ends
+        const audio = document.getElementById('audio-element') as HTMLAudioElement;
+        if (audio) audio.pause();
+        // The store handles togglePlay, but calling pause() directly on audio is safer from inside a timeout if state is stale
+        // Best approach is using custom event or standard DOM method
+        document.dispatchEvent(new CustomEvent('pause-playback'));
+        setSleepTimer(null);
+      }, nextTimer * 60 * 1000);
+    }
+  };
+  
+  const handleFavoriteToggle = async (e: React.MouseEvent) => {
+     e.stopPropagation();
+     const newState = !isFavorite;
+     setIsFavorite(newState);
+     try {
+         await toggleFavoriteTrack(currentTrack.id, !newState);
+     } catch(err) {
+         setIsFavorite(!newState); // revert on error
+     }
+  };
   
   // Swipe gesture state
   const [touchStartY, setTouchStartY] = useState(0);
@@ -159,12 +196,13 @@ export default function ExpandedPlayer() {
             >
               <Download className="w-5 h-5" />
             </button>
-            <button 
-              onClick={(e) => { e.stopPropagation(); setContextMenuTrack({ item: currentTrack, type: 'track' }); }}
-              className="w-10 h-10 flex-shrink-0 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center text-black dark:text-white hover:bg-black/10 dark:hover:bg-white/20 transition-colors"
+            <motion.button 
+              whileTap={{ scale: 0.8 }}
+              onClick={handleFavoriteToggle}
+              className="w-10 h-10 flex-shrink-0 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center hover:bg-black/10 dark:hover:bg-white/20 transition-colors"
             >
-              <MoreHorizontal className="w-5 h-5" />
-            </button>
+              <Heart className={`w-5 h-5 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-black dark:text-white'}`} />
+            </motion.button>
           </div>
         </div>
 
@@ -173,6 +211,20 @@ export default function ExpandedPlayer() {
 
         {/* Main Controls */}
         <PlayerControls dominantColor={dominantColor} />
+        
+        {/* Secondary Controls (Bottom) */}
+        <div className="flex items-center justify-between px-6 sm:px-10 mt-6">
+           <button className="flex flex-col items-center gap-1.5 text-black/40 dark:text-white/40 hover:text-black/80 dark:hover:text-white/80 transition-colors">
+              <Cast className="w-5 h-5" />
+              <span className="text-[10px] font-semibold tracking-wider">AIRPLAY</span>
+           </button>
+           <button onClick={toggleSleepTimer} className={`flex flex-col items-center gap-1.5 transition-colors ${sleepTimer ? 'text-black dark:text-white' : 'text-black/40 dark:text-white/40 hover:text-black/80 dark:hover:text-white/80'}`}>
+              <Timer className="w-5 h-5" />
+              <span className="text-[10px] font-semibold tracking-wider">
+                {sleepTimer ? `${sleepTimer} MIN` : 'SLEEP'}
+              </span>
+           </button>
+        </div>
       </div>
 
       {/* Equalizer Panel */}
@@ -198,28 +250,42 @@ export default function ExpandedPlayer() {
               style={{ background: `radial-gradient(circle at 100% 0%, ${dominantColor} 0%, transparent 60%)` }}
             />
           )}
-          <div onTouchMove={(e) => e.stopPropagation()} className="flex-1 overflow-y-auto pb-20 space-y-4">
-            {queue.map((track, idx) => {
-              const isPlayingQueue = currentTrack?.id === track.id;
-              return (
-                <div key={idx} onClick={() => playTrack(track)} className={`flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${isPlayingQueue ? 'bg-black/5 dark:bg-white/10' : ''}`}>
-                  <OfflineImage localPath={track.localCoverPath || track.original?.localCoverPath} remoteUrl={getImageSrc(track?.album?.image || track?.image)} alt={track.title} className="w-14 h-14 rounded-xl object-cover shadow-sm" />
-                  <div className="flex-1 min-w-0">
-                    <p className={`font-bold truncate ${isPlayingQueue ? 'text-black dark:text-white' : 'text-black/80 dark:text-white/80'}`}>
-                      {track.title}
-                    </p>
-                    <p className="text-sm text-black/50 dark:text-white/50 truncate">{track.artist}</p>
-                  </div>
-                  {isPlayingQueue && (
-                    <div className="w-4 h-4 flex items-end justify-between gap-[2px]">
-                      <div className="w-[3px] bg-black dark:bg-white rounded-full animate-[bounce_1s_infinite] h-2"></div>
-                      <div className="w-[3px] bg-black dark:bg-white rounded-full animate-[bounce_1s_infinite_0.2s] h-4"></div>
-                      <div className="w-[3px] bg-black dark:bg-white rounded-full animate-[bounce_1s_infinite_0.4s] h-3"></div>
+          <div className="flex-1 overflow-y-auto pb-20">
+            <Reorder.Group axis="y" values={queue} onReorder={setQueue} className="space-y-4">
+              {queue.map((track) => {
+                const isPlayingQueue = currentTrack?.id === track.id;
+                return (
+                  <Reorder.Item 
+                    key={track.id} 
+                    value={track} 
+                    className={`flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${isPlayingQueue ? 'bg-black/5 dark:bg-white/10' : ''}`}
+                    onClick={() => playTrack(track)}
+                    whileDrag={{ scale: 1.05, boxShadow: "0 10px 25px rgba(0,0,0,0.2)" }}
+                  >
+                    <OfflineImage localPath={track.localCoverPath || track.original?.localCoverPath} remoteUrl={getImageSrc(track?.album?.image || track?.image)} alt={track.title} className="w-14 h-14 rounded-xl object-cover shadow-sm pointer-events-none" />
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-bold truncate ${isPlayingQueue ? 'text-black dark:text-white' : 'text-black/80 dark:text-white/80'}`}>
+                        {track.title}
+                      </p>
+                      <p className="text-sm text-black/50 dark:text-white/50 truncate">{track.artist}</p>
                     </div>
-                  )}
-                </div>
-              );
-            })}
+                    {isPlayingQueue ? (
+                      <div className="w-4 h-4 flex items-end justify-between gap-[2px]">
+                        <div className="w-[3px] bg-black dark:bg-white rounded-full animate-[bounce_1s_infinite] h-2"></div>
+                        <div className="w-[3px] bg-black dark:bg-white rounded-full animate-[bounce_1s_infinite_0.2s] h-4"></div>
+                        <div className="w-[3px] bg-black dark:bg-white rounded-full animate-[bounce_1s_infinite_0.4s] h-3"></div>
+                      </div>
+                    ) : (
+                      <div className="w-4 h-4 flex flex-col justify-center gap-1 opacity-30 cursor-grab active:cursor-grabbing" onClick={(e) => e.stopPropagation()}>
+                        <div className="w-4 h-0.5 bg-black dark:bg-white rounded-full"></div>
+                        <div className="w-4 h-0.5 bg-black dark:bg-white rounded-full"></div>
+                        <div className="w-4 h-0.5 bg-black dark:bg-white rounded-full"></div>
+                      </div>
+                    )}
+                  </Reorder.Item>
+                );
+              })}
+            </Reorder.Group>
           </div>
       </div>
       </motion.div>

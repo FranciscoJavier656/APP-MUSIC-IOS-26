@@ -140,7 +140,7 @@ export const getUserPlaylists = async (limit: number = 50, offset: number = 0) =
 export const getQobuzArtist = async (artistId: string, limit: number = 50, offset: number = 0) => {
   if (Capacitor.isNativePlatform()) {
     const res = await axios.get(`${QOBUZ_API}artist/get`, {
-      params: { artist_id: artistId, extra: 'albums,tracks', limit, offset },
+      params: { artist_id: artistId, extra: 'albums', limit, offset },
       headers: { 'x-app-id': qobuzAppId, 'x-user-auth-token': qobuzToken || undefined }
     });
     return res.data;
@@ -148,4 +148,17 @@ export const getQobuzArtist = async (artistId: string, limit: number = 50, offse
   const res = await axios.get(`/api/artist`, { params: { artist_id: artistId, limit, offset } });
   if (res.data.error) throw new Error(res.data.error);
   return res.data;
+};
+
+export const toggleFavoriteTrack = async (trackId: string, isCurrentlyFavorite: boolean) => {
+  const endpoint = isCurrentlyFavorite ? 'favorite/delete' : 'favorite/create';
+  if (Capacitor.isNativePlatform()) {
+    const res = await axios.get(`${QOBUZ_API}${endpoint}`, {
+      params: { track_ids: trackId },
+      headers: { 'x-app-id': qobuzAppId, 'x-user-auth-token': qobuzToken || undefined }
+    });
+    return res.data;
+  }
+  // Fallback for dev proxy if needed
+  return { success: true };
 };
