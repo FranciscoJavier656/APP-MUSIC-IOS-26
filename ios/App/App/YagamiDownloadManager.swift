@@ -144,7 +144,7 @@ public class YagamiDownloadManager: CAPPlugin, URLSessionDownloadDelegate {
             }
             
             if let trackId = currentTrackId {
-                if let resumeData = nsError.userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
+                if let resumeData = (error as? URLError)?.downloadTaskResumeData {
                     resumeDataDict[trackId] = resumeData
                 }
                 
