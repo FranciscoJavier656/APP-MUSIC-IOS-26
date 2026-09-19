@@ -16,7 +16,7 @@ interface PlayerArtworkProps {
 type LyricLine = { time: number; text: string; duration: number };
 
 export default function PlayerArtwork({ dominantColor, setDominantColor }: PlayerArtworkProps) {
-  const { currentTrack, isPlaying, audioRef, isExpanded } = usePlayer();
+  const { currentTrack, isPlaying, audioRef, isExpanded, seekTo } = usePlayer();
   
   const [resolvedImageSrc, setResolvedImageSrc] = useState<string | undefined>();
   const [showLyrics, setShowLyrics] = useState(false);
@@ -30,6 +30,17 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dominantColorRef = useRef<string | null>(null);
   const isPlayingRef = useRef(isPlaying);
+  
+  const isManualScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleUserScroll = () => {
+      isManualScrollingRef.current = true;
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
+          isManualScrollingRef.current = false;
+      }, 3000);
+  };
 
   useEffect(() => {
     dominantColorRef.current = dominantColor;
@@ -298,10 +309,20 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           if (activeIdx >= 0 && activeIdx < lyricsArray.length) {
               const activeChild = lyricsContainerRef.current.children[activeIdx] as HTMLElement;
               if (activeChild) {
-                  // LERP Parallax Scrolling
-                  const targetY = activeChild.offsetTop + (activeChild.clientHeight / 2);
-                  currentScrollY += (targetY - currentScrollY) * 0.08; // Factor de suavidad
-                  lyricsContainerRef.current.style.transform = `translateY(${-currentScrollY}px)`;
+                  // LERP Parallax Scrolling or Manual Override
+                  const containerHeight = lyricsContainerRef.current.parentElement?.clientHeight || 0;
+                  const targetY = activeChild.offsetTop - (containerHeight / 2) + (activeChild.clientHeight / 2);
+                  
+                  if (!isManualScrollingRef.current) {
+                      currentScrollY += (targetY - currentScrollY) * 0.08; // Factor de suavidad
+                      if (lyricsContainerRef.current.parentElement) {
+                          lyricsContainerRef.current.parentElement.scrollTop = currentScrollY;
+                      }
+                  } else {
+                      if (lyricsContainerRef.current.parentElement) {
+                          currentScrollY = lyricsContainerRef.current.parentElement.scrollTop;
+                      }
+                  }
 
                   const activeLine = lyricsArray[activeIdx];
                   let percent = ((adjustedCurrent - activeLine.time) / activeLine.duration);
@@ -523,13 +544,24 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
             </div>
             
             <div className="absolute inset-0 flex flex-col p-4 bg-black/20 rounded-3xl">
-                <div onTouchMove={(e) => e.stopPropagation()} className="overflow-hidden flex-1 text-center cursor-default relative" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}>
-                  <div className="absolute inset-x-0 top-1/2 flex flex-col items-center px-4 transition-transform duration-75" ref={lyricsContainerRef}>
+                <div 
+                  onTouchStart={handleUserScroll}
+                  onTouchMove={handleUserScroll}
+                  onWheel={handleUserScroll}
+                  className="overflow-y-auto flex-1 text-center relative no-scrollbar" 
+                  style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)' }}
+                >
+                  <div className="flex flex-col items-center px-4 pt-[45vh] pb-[45vh]" ref={lyricsContainerRef}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
                           key={idx} 
-                          className="text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 transition-all duration-[600ms] ease-[cubic-bezier(0.19,1,0.22,1)] origin-center flex flex-col items-center gap-1.5"
+                          onClick={(e) => {
+                             e.stopPropagation();
+                             seekTo(line.time);
+                             isManualScrollingRef.current = false;
+                          }}
+                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 transition-all duration-[600ms] ease-[cubic-bezier(0.19,1,0.22,1)] origin-center flex flex-col items-center gap-1.5"
                           style={{ 
                             opacity: 0.3, 
                             transform: 'scale(0.95)', 
