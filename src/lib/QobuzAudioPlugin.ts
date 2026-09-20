@@ -13,6 +13,7 @@ export interface QobuzAudioPlugin {
   setEQBand(options: { band: number, gain: number }): Promise<void>;
   setEQPreset(options: { preset: string }): Promise<{ gains: number[] }>;
   getEQState(): Promise<{ enabled: boolean, gains: number[], preset: string }>;
+  setFftEnabled(options: { enabled: boolean }): Promise<void>;
   // Listeners
   addListener(eventName: 'onFftData', listenerFunc: (info: { data: number[] }) => void): any;
   addListener(eventName: 'onTimeUpdate', listenerFunc: (info: { currentTime: number, duration: number, timestamp?: number }) => void): any;

@@ -65,6 +65,7 @@ typedef struct {
     
     float eqGains[EQ_NUM_BANDS];            // Gain in dB per band (-12 to +12)
     volatile BOOL eqEnabled;                // Atomic read from audio thread
+    volatile BOOL fftEnabled;               // Atomic read from audio thread
     float sampleRate;                       // Captured in tapPrepare
     int numChannels;                        // Captured in tapPrepare
     BOOL isNonInterleaved;                  // Captured in tapPrepare
@@ -95,6 +96,7 @@ static TapContext *g_tapContext = NULL;
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQPreset" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"getEQState" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"showAirPlayPicker" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setFftEnabled" returnType:CAPPluginReturnPromise]];
     return methods;
 }
 @end
@@ -152,6 +154,7 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
     
     // ── Initialize EQ state ──
     context->eqEnabled = NO;
+    context->fftEnabled = YES;
     context->activeCoeffBuffer = 0;
     context->sampleRate = 44100.0f; // Default, overridden in tapPrepare
     context->numChannels = 2;
@@ -445,6 +448,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     }
     
     // ── FFT Analysis (throttled to ~30fps for visualization only) ──
+    if (!context->fftEnabled) return;
     if (numberFrames < context->fftSize) return;
     
     QobuzAudioPlugin *plugin = (__bridge QobuzAudioPlugin *)context->plugin;
@@ -994,6 +998,19 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         [[NSUserDefaults standardUserDefaults] setObject:gains forKey:@"eq_gains"];
         [[NSUserDefaults standardUserDefaults] synchronize];
     }
+}
+
+- (void)setFftEnabled:(CAPPluginCall *)call {
+    BOOL enabled = [call.options[@"enabled"] boolValue];
+    
+    @synchronized ([QobuzAudioPlugin class]) {
+        if (g_tapContext) {
+            g_tapContext->fftEnabled = enabled;
+        }
+    }
+    
+    [self logMessage:[NSString stringWithFormat:@"📊 FFT %@", enabled ? @"ENABLED" : @"DISABLED"]];
+    [call resolve];
 }
 
 - (void)showAirPlayPicker:(CAPPluginCall *)call {

@@ -6,7 +6,7 @@ interface PlayerProgressProps {
 }
 
 export default function PlayerProgress({ dominantColor }: PlayerProgressProps) {
-  const { audioRef, duration, seekTo } = usePlayer();
+  const { audioRef, duration, seekTo, isPlaying } = usePlayer();
   const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const seekInputRef = useRef<HTMLInputElement>(null);
@@ -44,7 +44,6 @@ export default function PlayerProgress({ dominantColor }: PlayerProgressProps) {
 
   useEffect(() => {
     let animationId: number;
-    let timeoutId: number;
 
     const startDrawing = () => {
       const draw = () => {
@@ -69,18 +68,35 @@ export default function PlayerProgress({ dominantColor }: PlayerProgressProps) {
             }
           }
         }
-        animationId = requestAnimationFrame(draw);
+        if (isPlaying && document.visibilityState === 'visible') {
+           animationId = requestAnimationFrame(draw);
+        } else {
+           animationId = 0;
+        }
       };
-      draw();
+      
+      if (isPlaying && document.visibilityState === 'visible' && !animationId) {
+         draw();
+      } else if (!isPlaying || document.visibilityState !== 'visible') {
+         draw();
+      }
     };
 
-    timeoutId = window.setTimeout(startDrawing, 100);
+    startDrawing();
+
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && isPlaying && !animationId) {
+            startDrawing();
+        }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      clearTimeout(timeoutId);
       if (animationId) cancelAnimationFrame(animationId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [audioRef, duration]);
+  }, [audioRef, duration, isPlaying]);
 
   const handleSeekChange = (e: any) => {
     setIsScrubbing(true);

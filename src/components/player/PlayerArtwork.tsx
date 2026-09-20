@@ -293,6 +293,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   useEffect(() => {
     let animationId: number;
     let timeoutId: number;
+    let isActive = true;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
         
@@ -302,6 +303,8 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
 
     const startDrawing = () => {
       const draw = () => {
+        if (!isActive) return;
+        
         // Sync lyrics
         if (audioRef.current && parsedLyricsRef.current && lyricsContainerRef.current) {
           const rawNative = (audioRef.current as any).nativeCurrentTime;
@@ -409,9 +412,9 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               const scaleAmount = Math.max(0.75, 1.05 - (distanceAbs * 0.001));
               const opacityAmount = Math.max(0.05, 1 - (distanceAbs * 0.004));
               
-              const isActive = (i === activeIdx);
+              const isActiveNode = (i === activeIdx);
 
-              if (isActive) {
+              if (isActiveNode) {
                   if (!(child as any)._wasActive) {
                       child.classList.add('lyric-active');
                       (child as any)._wasActive = true;
@@ -612,9 +615,25 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           }
         }
 
-        animationId = requestAnimationFrame(draw);
+        if (isPlaying && document.visibilityState === 'visible') {
+           animationId = requestAnimationFrame(draw);
+        } else {
+           animationId = 0;
+        }
       };
-      draw();
+      
+      if (isPlaying && document.visibilityState === 'visible' && !animationId) {
+         draw();
+      } else if (!isPlaying || document.visibilityState !== 'visible') {
+         // Draw once to update to paused state
+         draw();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+       if (document.visibilityState === 'visible' && isPlaying && isExpanded) {
+           startDrawing();
+       }
     };
 
     const handleResize = () => {
@@ -625,17 +644,21 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
         }
       }
     };
+    
     window.addEventListener('resize', handleResize);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     if (isExpanded) {
       timeoutId = window.setTimeout(startDrawing, 100);
     }
     return () => {
+      isActive = false;
       window.removeEventListener('resize', handleResize);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearTimeout(timeoutId);
       if (animationId) cancelAnimationFrame(animationId);
     };
-  }, [audioRef, isExpanded]);
+  }, [audioRef, isExpanded, isPlaying]);
 
   if (!currentTrack) return null;
 

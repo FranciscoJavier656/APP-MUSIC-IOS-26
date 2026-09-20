@@ -422,17 +422,26 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
       const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
 
       const dispatchFft = () => {
-        if (!audio.paused && analyserNode) {
+        if (!audio.paused && analyserNode && document.visibilityState === 'visible') {
           analyserNode.getByteFrequencyData(dataArray);
           window.dispatchEvent(new CustomEvent('fft_data', { detail: { data: Array.from(dataArray) } }));
+          animationFrameId = requestAnimationFrame(dispatchFft);
+        } else {
+          animationFrameId = 0;
         }
-        animationFrameId = requestAnimationFrame(dispatchFft);
       };
-      dispatchFft();
+
+      const checkFft = () => {
+        if (!animationFrameId && !audio.paused && document.visibilityState === 'visible') {
+          dispatchFft();
+        }
+      };
 
       audio.addEventListener('play', () => {
         if (audioCtx?.state === 'suspended') audioCtx.resume();
+        checkFft();
       });
+      document.addEventListener('visibilitychange', checkFft);
     } catch (e) {
       console.warn('Web Audio API FFT failed', e);
     }
@@ -448,7 +457,14 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
   // Native listeners
   let timeUpdateListener: any;
   let nativeEndListener: any;
+  let appStateListener: any;
   if (Capacitor.isNativePlatform()) {
+    import('@capacitor/app').then(({ App }) => {
+      App.addListener('appStateChange', ({ isActive }) => {
+        if (QobuzAudio.setFftEnabled) QobuzAudio.setFftEnabled({ enabled: isActive });
+      }).then((l: any) => (appStateListener = l));
+    });
+
     QobuzAudio.addListener('onTimeUpdate', (info) => {
       if (audioRef.current) {
         let latency = 0;
@@ -515,6 +531,7 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
     audio.removeEventListener('loadedmetadata', updateDuration);
     audio.removeEventListener('ended', handleTrackEnd);
     if (timeUpdateListener) timeUpdateListener.remove();
+    if (appStateListener) appStateListener.remove();
     audio.pause();
     audio.removeAttribute('src');
   };

@@ -47,14 +47,38 @@ export default function MiniPlayer() {
     let animationId: number;
     const updateProgress = () => {
       if (audioRef.current && progressRef.current && audioRef.current.duration) {
-        const percent = (audioRef.current.currentTime / audioRef.current.duration) * 100;
-        progressRef.current.style.width > `${percent}%`;
+        let currentTime = audioRef.current.currentTime;
+        if (isNative && (audioRef.current as any).nativeCurrentTime !== undefined) {
+            currentTime = (audioRef.current as any).nativeCurrentTime;
+        }
+        const percent = (currentTime / audioRef.current.duration) * 100;
+        progressRef.current.style.width = `${percent}%`;
       }
-      animationId = requestAnimationFrame(updateProgress);
+      if (isPlaying && document.visibilityState === 'visible') {
+         animationId = requestAnimationFrame(updateProgress);
+      } else {
+         animationId = 0;
+      }
     };
-    updateProgress();
-    return () => cancelAnimationFrame(animationId);
-  }, [audioRef]);
+    
+    if (isPlaying && document.visibilityState === 'visible') {
+        updateProgress();
+    } else {
+        updateProgress(); // one-off update
+    }
+
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && isPlaying && !animationId) {
+            updateProgress();
+        }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+        if (animationId) cancelAnimationFrame(animationId);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [audioRef, isPlaying]);
 
   return (
     <>
