@@ -37,6 +37,9 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   const touchStartYRef = useRef(0);
   const touchStartScrollYRef = useRef(0);
   const currentScrollYRef = useRef(0);
+  const isManualSeekRef = useRef(false);
+  const seekTargetTimeRef = useRef<number | null>(null);
+  const requestRedrawRef = useRef<(() => void) | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
       isManualScrollingRef.current = true;
@@ -307,31 +310,45 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
         
         // Sync lyrics
         if (audioRef.current && parsedLyricsRef.current && lyricsContainerRef.current) {
-          const rawNative = (audioRef.current as any).nativeCurrentTime;
-          if (rawNative !== undefined) {
-             const now = performance.now();
-             let delta = (now - lastUpdateTimestamp) / 1000;
-             if (delta > 0.5) delta = 0.5;
+          const isManualSeek = isManualSeekRef.current || (audioRef.current as any)?.isManualSeek;
+          if (isManualSeek) {
+             isManualSeekRef.current = false;
+             if (audioRef.current) (audioRef.current as any).isManualSeek = false;
+          }
 
-             if (rawNative !== lastNativeTime) {
-                 if (lastNativeTime === -1 || Math.abs(rawNative - interpolatedTime) > 0.5) {
-                     interpolatedTime = rawNative;
-                 } else {
-                     interpolatedTime += delta;
-                     if (rawNative > interpolatedTime) {
-                         interpolatedTime = (interpolatedTime * 0.8) + (rawNative * 0.2);
-                     }
-                 }
-                 lastNativeTime = rawNative;
-                 lastUpdateTimestamp = now;
-             } else if (isPlayingRef.current) {
-                 interpolatedTime += delta;
-                 lastUpdateTimestamp = now;
-             } else {
-                 lastUpdateTimestamp = now;
-             }
+          const isNative = Capacitor.isNativePlatform();
+          const rawNative = isNative ? (audioRef.current as any).nativeCurrentTime : undefined;
+          const currentAudioTime = rawNative !== undefined ? rawNative : audioRef.current.currentTime;
+          const now = performance.now();
+          let delta = (now - lastUpdateTimestamp) / 1000;
+          if (delta > 0.5) delta = 0.5;
+
+          if (isManualSeek) {
+              interpolatedTime = seekTargetTimeRef.current !== null ? seekTargetTimeRef.current : currentAudioTime;
+              seekTargetTimeRef.current = null;
+              lastNativeTime = interpolatedTime;
+              lastUpdateTimestamp = now;
+          } else if (rawNative !== undefined) {
+              if (rawNative !== lastNativeTime) {
+                  if (lastNativeTime === -1 || Math.abs(rawNative - interpolatedTime) > 0.5) {
+                      interpolatedTime = rawNative;
+                  } else {
+                      interpolatedTime += delta;
+                      if (rawNative > interpolatedTime) {
+                          interpolatedTime = (interpolatedTime * 0.8) + (rawNative * 0.2);
+                      }
+                  }
+                  lastNativeTime = rawNative;
+                  lastUpdateTimestamp = now;
+              } else if (isPlayingRef.current) {
+                  interpolatedTime += delta;
+                  lastUpdateTimestamp = now;
+              } else {
+                  lastUpdateTimestamp = now;
+              }
           } else {
-             interpolatedTime = audioRef.current.currentTime;
+              interpolatedTime = audioRef.current.currentTime;
+              lastUpdateTimestamp = now;
           }
 
           const current = interpolatedTime;
@@ -374,9 +391,16 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           }
           
           // 2. Apply LERP for scroll
-          if (!isManualScrollingRef.current) {
+          if (isManualSeek) {
+              isManualScrollingRef.current = false;
+              if (scrollTimeoutRef.current) {
+                  clearTimeout(scrollTimeoutRef.current);
+                  scrollTimeoutRef.current = null;
+              }
+              currentScrollYRef.current = targetY; // Hard snap immediately on manual seek
+          } else if (!isManualScrollingRef.current) {
               if (Math.abs(targetY - currentScrollYRef.current) > 350) {
-                  currentScrollYRef.current = targetY; // Snap if distance is too large (e.g. flip or seek)
+                  currentScrollYRef.current = targetY; // Snap if distance is too large (e.g. flip)
               } else {
                   currentScrollYRef.current += (targetY - currentScrollYRef.current) * 0.12; // Smoother and faster LERP
               }
@@ -630,6 +654,17 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
         }
       };
       
+      requestRedrawRef.current = () => {
+         if (animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = 0;
+         }
+         draw();
+      };
+      if (audioRef.current) {
+         (audioRef.current as any).requestLyricsRedraw = requestRedrawRef.current;
+      }
+
       if (isPlaying && document.visibilityState === 'visible' && !animationId) {
          draw();
       } else if (!isPlaying || document.visibilityState !== 'visible') {
@@ -660,10 +695,14 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     if (isExpanded) {
-      timeoutId = window.setTimeout(startDrawing, 100);
+      startDrawing();
     }
     return () => {
       isActive = false;
+      requestRedrawRef.current = null;
+      if (audioRef.current) {
+        (audioRef.current as any).requestLyricsRedraw = null;
+      }
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearTimeout(timeoutId);
@@ -745,8 +784,15 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                           key={idx} 
                           onClick={(e) => {
                              e.stopPropagation();
-                             seekTo(line.time);
+                             if (scrollTimeoutRef.current) {
+                                clearTimeout(scrollTimeoutRef.current);
+                                scrollTimeoutRef.current = null;
+                             }
                              isManualScrollingRef.current = false;
+                             isManualSeekRef.current = true;
+                             seekTargetTimeRef.current = line.time;
+                             seekTo(line.time);
+                             requestRedrawRef.current?.();
                           }}
                           className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity]"
                           style={{ 
