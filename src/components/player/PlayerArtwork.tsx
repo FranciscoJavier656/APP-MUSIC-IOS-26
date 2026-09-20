@@ -370,11 +370,9 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   currentScrollYRef.current += (targetY - currentScrollYRef.current) * 0.12; // Smoother and faster LERP
               }
           }
-          
+
           const containerCenter = parentContainer.clientHeight / 2;
           const globalTranslateY = containerCenter - currentScrollYRef.current;
-
-          container.style.transform = `translateY(${globalTranslateY}px)`;
 
           // 3. Update all children with 3D Wheel effect
           const visibleThreshold = parentContainer.clientHeight * 0.8;
@@ -398,6 +396,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   continue;
               }
               (child as any)._isHidden = false;
+              child.style.transformOrigin = '50% 50%';
               
               // 3D Math based on screen position
               const normalizedDistance = distanceFromCenter / 80;
@@ -416,7 +415,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                       (child as any)._wasActive = true;
                   }
                   child.style.opacity = '1';
-                  child.style.transform = `rotateX(${rotateX}deg) translateZ(20px) scale(1.15)`;
+                  child.style.transform = `translateY(${globalTranslateY}px) rotateX(${rotateX}deg) translateZ(20px) scale(1.15)`;
                   child.style.filter = 'blur(0px)';
                   child.style.textShadow = '0 0 30px rgba(255,255,255,0.6)';
                   child.style.color = '#ffffff';
@@ -493,7 +492,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   }
 
                   child.style.opacity = opacityAmount.toString();
-                  child.style.transform = `rotateX(${rotateX}deg) translateZ(${translateZ}px) scale(${scaleAmount})`;
+                  child.style.transform = `translateY(${globalTranslateY}px) rotateX(${rotateX}deg) translateZ(${translateZ}px) scale(${scaleAmount})`;
                   child.style.filter = `blur(${blurAmount}px)`;
                   child.style.textShadow = 'none';
               }
@@ -699,11 +698,10 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   className="overflow-hidden flex-1 text-center cursor-default relative" 
                   style={{ 
                     maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', 
-                    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)',
-                    perspective: '1200px'
+                    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)'
                   }}
                 >
-                  <div className="absolute inset-0 flex flex-col items-center px-4" ref={lyricsContainerRef} style={{ transformStyle: 'preserve-3d' }}>
+                  <div className="absolute inset-0 flex flex-col items-center px-4" ref={lyricsContainerRef} style={{ perspective: '1200px' }}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
