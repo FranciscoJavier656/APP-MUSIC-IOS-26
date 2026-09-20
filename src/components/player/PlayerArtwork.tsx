@@ -30,6 +30,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dominantColorRef = useRef<string | null>(null);
   const isPlayingRef = useRef(isPlaying);
+  const lastFetchedTrackRef = useRef<string | null>(null);
   
   const isManualScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -173,6 +174,12 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
 
   useEffect(() => {
     if (currentTrack && showLyrics) {
+      const trackId = currentTrack.id || currentTrack.title;
+      if (lastFetchedTrackRef.current === trackId && parsedLyricsRef.current) {
+        return; // Already fetched
+      }
+      lastFetchedTrackRef.current = trackId;
+
       setLyrics("Buscando letras sincronizadas...");
       setParsedLyrics(null);
       parsedLyricsRef.current = null;
@@ -277,15 +284,27 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           
           const container = lyricsContainerRef.current;
           const children = container.children;
+          const parentContainer = container.parentElement;
+          if (!parentContainer) return;
           
           // 1. Calculate Target Y
           let targetY = currentScrollYRef.current;
           if (activeIdx >= 0 && activeIdx < children.length) {
               const activeChild = children[activeIdx] as HTMLElement;
-              targetY = activeChild.offsetTop + (activeChild.clientHeight / 2);
+              let childCenterY = (activeChild as any)._cachedCenterY;
+              if (childCenterY === undefined) {
+                  childCenterY = activeChild.offsetTop + (activeChild.clientHeight / 2);
+                  (activeChild as any)._cachedCenterY = childCenterY;
+              }
+              targetY = childCenterY;
           } else if (children.length > 0) {
               const firstChild = children[0] as HTMLElement;
-              targetY = firstChild.offsetTop - 50; 
+              let firstCenterY = (firstChild as any)._cachedCenterY;
+              if (firstCenterY === undefined) {
+                  firstCenterY = firstChild.offsetTop + (firstChild.clientHeight / 2);
+                  (firstChild as any)._cachedCenterY = firstCenterY;
+              }
+              targetY = firstCenterY - 50; 
           }
           
           // 2. Apply LERP for scroll
@@ -297,22 +316,39 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               }
           }
           
-          const containerCenter = container.clientHeight / 2;
+          const containerCenter = parentContainer.clientHeight / 2;
           const globalTranslateY = containerCenter - currentScrollYRef.current;
 
+          container.style.transform = `translateY(${globalTranslateY}px)`;
+
           // 3. Update all children with 3D Wheel effect
+          const visibleThreshold = parentContainer.clientHeight * 0.8;
+
           for (let i = 0; i < children.length; i++) {
               const child = children[i] as HTMLElement;
               
-              const childCenterY = child.offsetTop + (child.clientHeight / 2);
+              let childCenterY = (child as any)._cachedCenterY;
+              if (childCenterY === undefined) {
+                  childCenterY = child.offsetTop + (child.clientHeight / 2);
+                  (child as any)._cachedCenterY = childCenterY;
+              }
               const distanceFromCenter = childCenterY - currentScrollYRef.current;
+              const distanceAbs = Math.abs(distanceFromCenter);
+
+              if (distanceAbs > visibleThreshold && i !== activeIdx) {
+                  if ((child as any)._isHidden !== true || child.style.opacity !== '0') {
+                      child.style.opacity = '0';
+                      (child as any)._isHidden = true;
+                  }
+                  continue;
+              }
+              (child as any)._isHidden = false;
               
               // 3D Math based on screen position
               const normalizedDistance = distanceFromCenter / 80;
               const rotateX = Math.max(-75, Math.min(75, normalizedDistance * 25)); // Rotate up to 75 deg
               const translateZ = -Math.abs(normalizedDistance) * 20; 
               
-              const distanceAbs = Math.abs(distanceFromCenter);
               const blurAmount = Math.min(10, distanceAbs * 0.025);
               const scaleAmount = Math.max(0.75, 1.05 - (distanceAbs * 0.001));
               const opacityAmount = Math.max(0.05, 1 - (distanceAbs * 0.004));
@@ -320,11 +356,12 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               const isActive = (i === activeIdx);
 
               if (isActive) {
-                  if (!child.classList.contains('lyric-active')) {
+                  if (!(child as any)._wasActive) {
                       child.classList.add('lyric-active');
+                      (child as any)._wasActive = true;
                   }
                   child.style.opacity = '1';
-                  child.style.transform = `translateY(${globalTranslateY}px) scale(1.15) rotateX(${rotateX}deg) translateZ(20px)`;
+                  child.style.transform = `scale(1.15) rotateX(${rotateX}deg) translateZ(20px)`;
                   child.style.filter = 'blur(0px)';
                   child.style.textShadow = '0 0 30px rgba(255,255,255,0.6)';
                   child.style.color = '#ffffff';
@@ -371,8 +408,10 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                       });
                   }
               } else {
-                  if (child.classList.contains('lyric-active')) {
+                  if ((child as any)._wasActive) {
                       child.classList.remove('lyric-active');
+                      (child as any)._wasActive = false;
+                      
                       child.style.background = 'none';
                       child.style.WebkitBackgroundClip = 'initial';
                       child.style.WebkitTextFillColor = 'initial';
@@ -399,7 +438,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   }
 
                   child.style.opacity = opacityAmount.toString();
-                  child.style.transform = `translateY(${globalTranslateY}px) scale(${scaleAmount}) rotateX(${rotateX}deg) translateZ(${translateZ}px)`;
+                  child.style.transform = `scale(${scaleAmount}) rotateX(${rotateX}deg) translateZ(${translateZ}px)`;
                   child.style.filter = `blur(${blurAmount}px)`;
                   child.style.textShadow = 'none';
               }
@@ -522,10 +561,21 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
       draw();
     };
 
+    const handleResize = () => {
+      if (lyricsContainerRef.current) {
+        const children = lyricsContainerRef.current.children;
+        for (let i = 0; i < children.length; i++) {
+          (children[i] as any)._cachedCenterY = undefined;
+        }
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
     if (isExpanded) {
       timeoutId = window.setTimeout(startDrawing, 100);
     }
     return () => {
+      window.removeEventListener('resize', handleResize);
       clearTimeout(timeoutId);
       if (animationId) cancelAnimationFrame(animationId);
     };
@@ -596,7 +646,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                     perspective: '1200px'
                   }}
                 >
-                  <div className="absolute inset-0 flex flex-col items-center px-4" ref={lyricsContainerRef}>
+                  <div className="absolute inset-0 flex flex-col items-center px-4" ref={lyricsContainerRef} style={{ transformStyle: 'preserve-3d' }}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
@@ -606,11 +656,10 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                              seekTo(line.time);
                              isManualScrollingRef.current = false;
                           }}
-                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity,filter]"
+                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity]"
                           style={{ 
                             opacity: 0.3, 
                             transform: 'scale(0.95)', 
-                            filter: 'blur(4px)',
                             background: 'none',
                             WebkitBackgroundClip: 'initial',
                             WebkitTextFillColor: 'initial',
