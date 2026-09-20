@@ -631,8 +631,11 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
     };
 
     const handleVisibilityChange = () => {
-       if (document.visibilityState === 'visible' && isPlaying && isExpanded) {
-           startDrawing();
+       if (document.visibilityState === 'visible') {
+           lastUpdateTimestamp = performance.now();
+           if (isPlaying && isExpanded) {
+               startDrawing();
+           }
        }
     };
 

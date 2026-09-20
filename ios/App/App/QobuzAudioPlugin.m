@@ -506,6 +506,34 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 
 @implementation QobuzAudioPlugin
 
+- (void)load {
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleAudioSessionInterruption:) name:AVAudioSessionInterruptionNotification object:[AVAudioSession sharedInstance]];
+}
+
+- (void)handleAudioSessionInterruption:(NSNotification *)notification {
+    NSDictionary *userInfo = notification.userInfo;
+    AVAudioSessionInterruptionType type = [userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
+    
+    if (type == AVAudioSessionInterruptionTypeBegan) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.player pause];
+            self.isPlaying = NO;
+            [self updateNowPlayingState];
+            [self notifyListeners:@"onStateChange" data:@{@"isPlaying": @NO}];
+        });
+    } else if (type == AVAudioSessionInterruptionTypeEnded) {
+        AVAudioSessionInterruptionOptions options = [userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue];
+        if (options & AVAudioSessionInterruptionOptionShouldResume) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.player play];
+                self.isPlaying = YES;
+                [self updateNowPlayingState];
+                [self notifyListeners:@"onStateChange" data:@{@"isPlaying": @YES}];
+            });
+        }
+    }
+}
+
 - (void)setupRemoteControls:(CAPPluginCall *)call {
     dispatch_async(dispatch_get_main_queue(), ^{
         MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
