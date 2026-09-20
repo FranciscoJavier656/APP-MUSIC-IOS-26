@@ -384,7 +384,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                       (child as any)._wasActive = true;
                   }
                   child.style.opacity = '1';
-                  child.style.transform = `scale(1.15) rotateX(${rotateX}deg) translateZ(20px)`;
+                  child.style.transform = `rotateX(${rotateX}deg) translateZ(20px) scale(1.15)`;
                   child.style.filter = 'blur(0px)';
                   child.style.textShadow = '0 0 30px rgba(255,255,255,0.6)';
                   child.style.color = '#ffffff';
@@ -461,7 +461,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   }
 
                   child.style.opacity = opacityAmount.toString();
-                  child.style.transform = `scale(${scaleAmount}) rotateX(${rotateX}deg) translateZ(${translateZ}px)`;
+                  child.style.transform = `rotateX(${rotateX}deg) translateZ(${translateZ}px) scale(${scaleAmount})`;
                   child.style.filter = `blur(${blurAmount}px)`;
                   child.style.textShadow = 'none';
               }
