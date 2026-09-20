@@ -310,9 +310,11 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           const rawNative = (audioRef.current as any).nativeCurrentTime;
           if (rawNative !== undefined) {
              const now = performance.now();
-             const delta = (now - lastUpdateTimestamp) / 1000;
+             let delta = (now - lastUpdateTimestamp) / 1000;
+             if (delta > 0.5) delta = 0.5;
+
              if (rawNative !== lastNativeTime) {
-                 if (lastNativeTime === -1 || Math.abs(rawNative - lastNativeTime) > 1.5) {
+                 if (lastNativeTime === -1 || Math.abs(rawNative - interpolatedTime) > 0.5) {
                      interpolatedTime = rawNative;
                  } else {
                      interpolatedTime += delta;
@@ -615,7 +617,13 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           }
         }
 
-        if (isPlaying && document.visibilityState === 'visible') {
+        const isDecaying = !isPlaying && (
+           ((window as any).bgSmoothed > 0.005) || 
+           ((window as any).midSmoothed > 0.005) || 
+           ((window as any).auraSize > 0.005)
+        );
+
+        if ((isPlaying || isDecaying) && document.visibilityState === 'visible') {
            animationId = requestAnimationFrame(draw);
         } else {
            animationId = 0;
