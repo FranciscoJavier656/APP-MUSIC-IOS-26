@@ -307,12 +307,20 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           const rawNative = (audioRef.current as any).nativeCurrentTime;
           if (rawNative !== undefined) {
              const now = performance.now();
+             const delta = (now - lastUpdateTimestamp) / 1000;
              if (rawNative !== lastNativeTime) {
+                 if (lastNativeTime === -1 || Math.abs(rawNative - lastNativeTime) > 1.5) {
+                     interpolatedTime = rawNative;
+                 } else {
+                     interpolatedTime += delta;
+                     if (rawNative > interpolatedTime) {
+                         interpolatedTime = (interpolatedTime * 0.8) + (rawNative * 0.2);
+                     }
+                 }
                  lastNativeTime = rawNative;
-                 interpolatedTime = rawNative;
                  lastUpdateTimestamp = now;
              } else if (isPlayingRef.current) {
-                 interpolatedTime += (now - lastUpdateTimestamp) / 1000;
+                 interpolatedTime += delta;
                  lastUpdateTimestamp = now;
              } else {
                  lastUpdateTimestamp = now;
@@ -341,25 +349,23 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           const children = container.children;
           const parentContainer = container.parentElement;
           if (!parentContainer) return;
+
+          // 0. Pre-cache all layout properties to prevent Layout Thrashing
+          for (let i = 0; i < children.length; i++) {
+              const child = children[i] as HTMLElement;
+              if ((child as any)._cachedCenterY === undefined) {
+                  (child as any)._cachedCenterY = child.offsetTop + (child.clientHeight / 2);
+              }
+          }
           
           // 1. Calculate Target Y
           let targetY = currentScrollYRef.current;
           if (activeIdx >= 0 && activeIdx < children.length) {
               const activeChild = children[activeIdx] as HTMLElement;
-              let childCenterY = (activeChild as any)._cachedCenterY;
-              if (childCenterY === undefined) {
-                  childCenterY = activeChild.offsetTop + (activeChild.clientHeight / 2);
-                  (activeChild as any)._cachedCenterY = childCenterY;
-              }
-              targetY = childCenterY;
+              targetY = (activeChild as any)._cachedCenterY;
           } else if (children.length > 0) {
               const firstChild = children[0] as HTMLElement;
-              let firstCenterY = (firstChild as any)._cachedCenterY;
-              if (firstCenterY === undefined) {
-                  firstCenterY = firstChild.offsetTop + (firstChild.clientHeight / 2);
-                  (firstChild as any)._cachedCenterY = firstCenterY;
-              }
-              targetY = firstCenterY - 50; 
+              targetY = (firstChild as any)._cachedCenterY - 50; 
           }
           
           // 2. Apply LERP for scroll
@@ -380,11 +386,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           for (let i = 0; i < children.length; i++) {
               const child = children[i] as HTMLElement;
               
-              let childCenterY = (child as any)._cachedCenterY;
-              if (childCenterY === undefined) {
-                  childCenterY = child.offsetTop + (child.clientHeight / 2);
-                  (child as any)._cachedCenterY = childCenterY;
-              }
+              const childCenterY = (child as any)._cachedCenterY;
               const distanceFromCenter = childCenterY - currentScrollYRef.current;
               const distanceAbs = Math.abs(distanceFromCenter);
 
@@ -701,7 +703,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                     WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)'
                   }}
                 >
-                  <div className="absolute inset-0 flex flex-col items-center px-4" ref={lyricsContainerRef} style={{ perspective: '1200px' }}>
+                  <div className="absolute inset-0 block px-4" ref={lyricsContainerRef} style={{ perspective: '1200px' }}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
@@ -711,7 +713,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                              seekTo(line.time);
                              isManualScrollingRef.current = false;
                           }}
-                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity]"
+                          className="w-full cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center block text-center will-change-[transform,opacity]"
                           style={{ 
                             opacity: 0.3, 
                             transform: 'scale(0.95)', 
