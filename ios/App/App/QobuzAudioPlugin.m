@@ -1042,7 +1042,17 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 }
 
 - (void)showAirPlayPicker:(CAPPluginCall *)call {
-    [call resolve];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        AVRoutePickerView *routePickerView = [[AVRoutePickerView alloc] initWithFrame:CGRectZero];
+        for (UIView *subview in routePickerView.subviews) {
+            if ([subview isKindOfClass:[UIButton class]]) {
+                UIButton *button = (UIButton *)subview;
+                [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+                break;
+            }
+        }
+        [call resolve];
+    });
 }
 
 @end
