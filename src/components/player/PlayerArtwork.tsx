@@ -196,12 +196,14 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               const lines = bestMatch.syncedLyrics.split('\n');
               const parsed: LyricLine[] = [];
               for (const line of lines) {
-                const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
+                const match = line.match(/\[(\d{2,}):(\d{2})\.(\d{1,3})\](.*)/);
                 if (match) {
                   const minutes = parseInt(match[1], 10);
                   const seconds = parseInt(match[2], 10);
-                  const msStr = match[3].length === 2 ? match[3] + '0' : match[3];
-                  const ms = parseInt(msStr, 10);
+                  const msStr = match[3];
+                  let ms = parseInt(msStr, 10);
+                  if (msStr.length === 1) ms *= 100;
+                  else if (msStr.length === 2) ms *= 10;
                   const time = minutes * 60 + seconds + ms / 1000;
                   const text = match[4].trim();
                   if (text) parsed.push({ time, text, duration: 0 });
@@ -262,13 +264,34 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
         
+    let lastNativeTime = -1;
+    let interpolatedTime = 0;
+    let lastUpdateTimestamp = performance.now();
+
     const startDrawing = () => {
       const draw = () => {
         // Sync lyrics
         if (audioRef.current && parsedLyricsRef.current && lyricsContainerRef.current) {
-          const current = (audioRef.current as any).nativeCurrentTime ?? audioRef.current.currentTime;
+          const rawNative = (audioRef.current as any).nativeCurrentTime;
+          if (rawNative !== undefined) {
+             const now = performance.now();
+             if (rawNative !== lastNativeTime) {
+                 lastNativeTime = rawNative;
+                 interpolatedTime = rawNative;
+                 lastUpdateTimestamp = now;
+             } else if (isPlayingRef.current) {
+                 interpolatedTime += (now - lastUpdateTimestamp) / 1000;
+                 lastUpdateTimestamp = now;
+             } else {
+                 lastUpdateTimestamp = now;
+             }
+          } else {
+             interpolatedTime = audioRef.current.currentTime;
+          }
+
+          const current = interpolatedTime;
           const lyricsArray = parsedLyricsRef.current;
-          const LYRICS_OFFSET = 0.4;
+          const LYRICS_OFFSET = 0.0;
           const adjustedCurrent = current + LYRICS_OFFSET;
           let activeIdx = -1;
           

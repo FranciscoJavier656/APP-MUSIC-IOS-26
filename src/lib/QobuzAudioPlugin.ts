@@ -15,7 +15,7 @@ export interface QobuzAudioPlugin {
   getEQState(): Promise<{ enabled: boolean, gains: number[], preset: string }>;
   // Listeners
   addListener(eventName: 'onFftData', listenerFunc: (info: { data: number[] }) => void): any;
-  addListener(eventName: 'onTimeUpdate', listenerFunc: (info: { currentTime: number, duration: number }) => void): any;
+  addListener(eventName: 'onTimeUpdate', listenerFunc: (info: { currentTime: number, duration: number, timestamp?: number }) => void): any;
   addListener(eventName: 'onEnded', listenerFunc: () => void): any;
   addListener(eventName: 'onRemotePlay', listenerFunc: () => void): any;
   addListener(eventName: 'onRemotePause', listenerFunc: () => void): any;

@@ -451,7 +451,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     if (!plugin.isPlaying) return;
     
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-    if (now - plugin.lastFftUpdate < 0.033) return; // approx 30fps
+    if (now - plugin.lastFftUpdate < 0.05) return; // approx 20fps
     
     float *samples = (float *)bufferListInOut->mBuffers[0].mData;
     if (!samples) return;
@@ -723,11 +723,12 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
             });
         }];
         
-        weakSelf.timeObserver = [weakSelf.player addPeriodicTimeObserverForInterval:CMTimeMake(1, 10) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
+        weakSelf.timeObserver = [weakSelf.player addPeriodicTimeObserverForInterval:CMTimeMake(1, 4) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
             float currentTime = CMTimeGetSeconds(time);
             float duration = CMTimeGetSeconds(weakSelf.player.currentItem.duration);
             if (isnan(duration)) duration = 0;
-            [weakSelf notifyListeners:@"onTimeUpdate" data:@{@"currentTime": @(currentTime), @"duration": @(duration)}];
+            NSTimeInterval timestamp = [[NSDate date] timeIntervalSince1970] * 1000.0;
+            [weakSelf notifyListeners:@"onTimeUpdate" data:@{@"currentTime": @(currentTime), @"duration": @(duration), @"timestamp": @(timestamp)}];
         }];
         
         [weakSelf.player play];
@@ -996,8 +997,41 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 }
 
 - (void)showAirPlayPicker:(CAPPluginCall *)call {
-    // AirPlay logic temporarily disabled to fix compiler error
-    [call resolve];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MPVolumeView *volumeView = [[MPVolumeView alloc] initWithFrame:CGRectMake(0, 0, 0, 0)];
+        volumeView.showsVolumeSlider = NO;
+        volumeView.showsRouteButton = YES;
+        volumeView.hidden = NO;
+        
+        UIWindow *window = nil;
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                window = ((UIWindowScene *)scene).windows.firstObject;
+                break;
+            }
+        }
+        if (!window) window = UIApplication.sharedApplication.keyWindow;
+        if (!window) {
+            [call reject:@"No window found"];
+            return;
+        }
+        
+        [window addSubview:volumeView];
+        
+        for (UIView *view in volumeView.subviews) {
+            if ([view isKindOfClass:[UIButton class]]) {
+                UIButton *button = (UIButton *)view;
+                [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+                break;
+            }
+        }
+        
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [volumeView removeFromSuperview];
+        });
+        
+        [call resolve];
+    });
 }
 
 @end

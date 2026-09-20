@@ -451,7 +451,15 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
   if (Capacitor.isNativePlatform()) {
     QobuzAudio.addListener('onTimeUpdate', (info) => {
       if (audioRef.current) {
-        (audioRef.current as any).nativeCurrentTime = info.currentTime;
+        let latency = 0;
+        if (info.timestamp) {
+            latency = (Date.now() - info.timestamp) / 1000.0;
+            // Prevent negative latency in case of slight clock mismatches
+            if (latency < 0) latency = 0;
+            // If latency is ridiculously high (e.g. paused for a while), cap it
+            if (latency > 2.0) latency = 0; 
+        }
+        (audioRef.current as any).nativeCurrentTime = info.currentTime + latency;
         (audioRef.current as any).nativeDuration = info.duration;
         store.setState({ duration: info.duration });
       }
