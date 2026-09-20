@@ -833,11 +833,12 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         return;
     }
     
-    CMTime targetTime = CMTimeMakeWithSeconds([timeNum doubleValue], 600);
+    CMTime targetTime = CMTimeMakeWithSeconds([timeNum doubleValue], 1000);
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self.player seekToTime:targetTime];
-        [self updateNowPlayingState];
-        [call resolve];
+        [self.player seekToTime:targetTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
+            [self updateNowPlayingState];
+            [call resolve];
+        }];
     });
 }
 
