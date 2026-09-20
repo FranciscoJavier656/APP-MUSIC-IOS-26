@@ -997,41 +997,8 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 }
 
 - (void)showAirPlayPicker:(CAPPluginCall *)call {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        MPVolumeView *volumeView = [[MPVolumeView alloc] initWithFrame:CGRectMake(0, 0, 0, 0)];
-        volumeView.showsVolumeSlider = NO;
-        volumeView.showsRouteButton = YES;
-        volumeView.hidden = NO;
-        
-        UIWindow *window = nil;
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
-                window = ((UIWindowScene *)scene).windows.firstObject;
-                break;
-            }
-        }
-        if (!window) window = UIApplication.sharedApplication.keyWindow;
-        if (!window) {
-            [call reject:@"No window found"];
-            return;
-        }
-        
-        [window addSubview:volumeView];
-        
-        for (UIView *view in volumeView.subviews) {
-            if ([view isKindOfClass:[UIButton class]]) {
-                UIButton *button = (UIButton *)view;
-                [button sendActionsForControlEvents:UIControlEventTouchUpInside];
-                break;
-            }
-        }
-        
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [volumeView removeFromSuperview];
-        });
-        
-        [call resolve];
-    });
+    [call resolve];
 }
 
 @end
+
