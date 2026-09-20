@@ -417,7 +417,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                       (child as any)._wasActive = true;
                   }
                   child.style.opacity = '1';
-                  child.style.transform = `translateY(${globalTranslateY}px) rotateX(${rotateX}deg) translateZ(20px) scale(1.15)`;
+                  child.style.transform = `translateY(${globalTranslateY}px) scale(1.15) rotateX(${rotateX}deg) translateZ(20px)`;
                   child.style.filter = 'blur(0px)';
                   child.style.textShadow = '0 0 30px rgba(255,255,255,0.6)';
                   child.style.color = '#ffffff';
@@ -494,7 +494,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   }
 
                   child.style.opacity = opacityAmount.toString();
-                  child.style.transform = `translateY(${globalTranslateY}px) rotateX(${rotateX}deg) translateZ(${translateZ}px) scale(${scaleAmount})`;
+                  child.style.transform = `translateY(${globalTranslateY}px) scale(${scaleAmount}) rotateX(${rotateX}deg) translateZ(${translateZ}px)`;
                   child.style.filter = `blur(${blurAmount}px)`;
                   child.style.textShadow = 'none';
               }
@@ -700,10 +700,11 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                   className="overflow-hidden flex-1 text-center cursor-default relative" 
                   style={{ 
                     maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', 
-                    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)'
+                    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)',
+                    perspective: '1200px'
                   }}
                 >
-                  <div className="absolute inset-0 block px-4" ref={lyricsContainerRef} style={{ perspective: '1200px' }}>
+                  <div className="absolute inset-0 flex flex-col items-center px-4" ref={lyricsContainerRef}>
                     {parsedLyrics ? (
                       parsedLyrics.map((line, idx) => (
                         <p 
@@ -713,7 +714,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                              seekTo(line.time);
                              isManualScrollingRef.current = false;
                           }}
-                          className="w-full cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center block text-center will-change-[transform,opacity]"
+                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity]"
                           style={{ 
                             opacity: 0.3, 
                             transform: 'scale(0.95)', 
