@@ -44,11 +44,19 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
       touchStartScrollYRef.current = currentScrollYRef.current;
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
   };
+
   const handleTouchMove = (e: React.TouchEvent) => {
       e.stopPropagation();
       const deltaY = e.touches[0].clientY - touchStartYRef.current;
       currentScrollYRef.current = touchStartScrollYRef.current - deltaY;
       
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
+          isManualScrollingRef.current = false;
+      }, 3000);
+  };
+
+  const handleTouchEnd = () => {
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       scrollTimeoutRef.current = setTimeout(() => {
           isManualScrollingRef.current = false;
@@ -62,6 +70,30 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
+
+  // Invalidate cached layout positions when lyrics view toggles or lyrics change
+  useEffect(() => {
+    const invalidateCache = () => {
+      if (lyricsContainerRef.current) {
+        const children = lyricsContainerRef.current.children;
+        for (let i = 0; i < children.length; i++) {
+          (children[i] as any)._cachedCenterY = undefined;
+        }
+      }
+    };
+    
+    // Invalidate immediately and after flip animation settles
+    invalidateCache();
+    const t1 = setTimeout(invalidateCache, 150);
+    const t2 = setTimeout(invalidateCache, 500);
+    const t3 = setTimeout(invalidateCache, 1100);
+    
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [showLyrics, parsedLyrics]);
 
   // Resolve Image SRC
   useEffect(() => {
@@ -662,6 +694,8 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                 <div 
                   onTouchStart={handleTouchStart}
                   onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  onTouchCancel={handleTouchEnd}
                   className="overflow-hidden flex-1 text-center cursor-default relative" 
                   style={{ 
                     maskImage: 'linear-gradient(to bottom, transparent 0%, black 25%, black 75%, transparent 100%)', 
