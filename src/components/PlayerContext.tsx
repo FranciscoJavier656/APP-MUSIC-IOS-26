@@ -3,7 +3,7 @@
 // Maintains backward compatibility: usePlayer() works identically
 // ═══════════════════════════════════════════════════════════
 
-import React, { createContext, useContext, useRef, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useRef, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { usePlayerStore, initPlayerEngine, type Track } from '../lib/playerStore';
 import TrackContextMenu from './TrackContextMenu';
 import DownloadModal from './DownloadModal';
@@ -64,78 +64,168 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Pull all state from Zustand store
-  const state = usePlayerStore();
+  // Granular subscriptions so PlayerProvider only re-renders when relevant state changes
+  const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const isLoading = usePlayerStore((s) => s.isLoading);
+  const duration = usePlayerStore((s) => s.duration);
+  const isExpanded = usePlayerStore((s) => s.isExpanded);
+  const volume = usePlayerStore((s) => s.volume);
+  const queue = usePlayerStore((s) => s.queue);
+  const isShuffle = usePlayerStore((s) => s.isShuffle);
+  const repeatMode = usePlayerStore((s) => s.repeatMode);
+  const contextMenuTrack = usePlayerStore((s) => s.contextMenuTrack);
+  const downloadItem = usePlayerStore((s) => s.downloadItem);
 
-  // Build the legacy context value
-  const contextValue: PlayerContextType = {
-    contextMenuTrack: state.contextMenuTrack,
-    setContextMenuTrack: state.setContextMenuTrack,
-    downloadItem: state.downloadItem,
-    setDownloadItem: state.setDownloadItem,
-    currentTrack: state.currentTrack,
-    isPlaying: state.isPlaying,
-    isLoading: state.isLoading,
-    duration: state.duration,
-    isExpanded: state.isExpanded,
-    setIsExpanded: state.setIsExpanded,
-    playTrack: state.playTrack,
-    setQueue: state.setQueue,
-    togglePlay: state.togglePlay,
-    seekTo: state.seekTo,
-    setVolume: state.setVolume,
-    volume: state.volume,
-    queue: state.queue,
-    nextTrack: state.nextTrack,
-    prevTrack: state.prevTrack,
-    isShuffle: state.isShuffle,
-    toggleShuffle: state.toggleShuffle,
-    repeatMode: state.repeatMode,
-    toggleRepeat: state.toggleRepeat,
+  // Stable action callbacks delegating to the Zustand store
+  const setContextMenuTrack = useCallback(
+    (track: { item: any; type: 'album' | 'track' | 'playlist' | 'artist' } | null) => {
+      usePlayerStore.getState().setContextMenuTrack(track);
+    },
+    []
+  );
+
+  const setDownloadItem = useCallback(
+    (item: { item: any; type: 'album' | 'track' | 'playlist' | 'artist' } | null) => {
+      usePlayerStore.getState().setDownloadItem(item);
+    },
+    []
+  );
+
+  const setIsExpanded = useCallback((expanded: boolean) => {
+    usePlayerStore.getState().setIsExpanded(expanded);
+  }, []);
+
+  const playTrack = useCallback((track: Track, newQueue?: Track[]) => {
+    usePlayerStore.getState().playTrack(track, newQueue);
+  }, []);
+
+  const setQueue = useCallback((newQueue: Track[]) => {
+    usePlayerStore.getState().setQueue(newQueue);
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    usePlayerStore.getState().togglePlay();
+  }, []);
+
+  const seekTo = useCallback((time: number) => {
+    usePlayerStore.getState().seekTo(time);
+  }, []);
+
+  const setVolume = useCallback((vol: number) => {
+    usePlayerStore.getState().setVolume(vol);
+  }, []);
+
+  const nextTrack = useCallback(() => {
+    usePlayerStore.getState().nextTrack();
+  }, []);
+
+  const prevTrack = useCallback(() => {
+    usePlayerStore.getState().prevTrack();
+  }, []);
+
+  const toggleShuffle = useCallback(() => {
+    usePlayerStore.getState().toggleShuffle();
+  }, []);
+
+  const toggleRepeat = useCallback(() => {
+    usePlayerStore.getState().toggleRepeat();
+  }, []);
+
+  // Memoize legacy context value to protect downstream consumers
+  const contextValue = useMemo<PlayerContextType>(() => ({
+    contextMenuTrack,
+    setContextMenuTrack,
+    downloadItem,
+    setDownloadItem,
+    currentTrack,
+    isPlaying,
+    isLoading,
+    duration,
+    isExpanded,
+    setIsExpanded,
+    playTrack,
+    setQueue,
+    togglePlay,
+    seekTo,
+    setVolume,
+    volume,
+    queue,
+    nextTrack,
+    prevTrack,
+    isShuffle,
+    toggleShuffle,
+    repeatMode,
+    toggleRepeat,
     analyser: null,
     audioRef,
-  };
+  }), [
+    contextMenuTrack,
+    setContextMenuTrack,
+    downloadItem,
+    setDownloadItem,
+    currentTrack,
+    isPlaying,
+    isLoading,
+    duration,
+    isExpanded,
+    setIsExpanded,
+    playTrack,
+    setQueue,
+    togglePlay,
+    seekTo,
+    setVolume,
+    volume,
+    queue,
+    nextTrack,
+    prevTrack,
+    isShuffle,
+    toggleShuffle,
+    repeatMode,
+    toggleRepeat,
+    audioRef,
+  ]);
 
   return (
     <PlayerContext.Provider value={contextValue}>
       {children}
       <TrackContextMenu
-        track={state.contextMenuTrack?.item}
-        itemType={state.contextMenuTrack?.type}
-        onClose={() => state.setContextMenuTrack(null)}
+        track={contextMenuTrack?.item}
+        itemType={contextMenuTrack?.type}
+        onClose={() => setContextMenuTrack(null)}
         onGoToAlbum={() => {
-          const track = state.contextMenuTrack?.item;
+          const track = contextMenuTrack?.item;
           const albumId =
             track?.album?.id ||
             track?.album?.qobuz_id ||
-            (state.contextMenuTrack?.type === 'album' ? track?.id || track?.qobuz_id : null);
+            (contextMenuTrack?.type === 'album' ? track?.id || track?.qobuz_id : null);
           if (albumId) {
-            state.setContextMenuTrack(null);
+            setContextMenuTrack(null);
             document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'album', id: albumId } }));
           }
         }}
         onGoToArtist={() => {
-          const track = state.contextMenuTrack?.item;
+          const track = contextMenuTrack?.item;
           const artistId =
             track?.artist?.id ||
             track?.performer?.id ||
-            (state.contextMenuTrack?.type === 'artist' ? track?.id || track?.qobuz_id : null);
+            (contextMenuTrack?.type === 'artist' ? track?.id || track?.qobuz_id : null);
           if (artistId) {
-            state.setContextMenuTrack(null);
+            setContextMenuTrack(null);
             document.dispatchEvent(new CustomEvent('open-overlay', { detail: { type: 'artist', id: artistId } }));
           }
         }}
         onDownload={() => {
-          if (state.contextMenuTrack) {
-            state.setDownloadItem({ item: state.contextMenuTrack.item, type: state.contextMenuTrack.type });
+          if (contextMenuTrack) {
+            setDownloadItem({ item: contextMenuTrack.item, type: contextMenuTrack.type });
           }
         }}
       />
-      {state.downloadItem && (
+      {downloadItem && (
         <DownloadModal
-          item={state.downloadItem.item}
-          type={state.downloadItem.type}
-          onClose={() => state.setDownloadItem(null)}
+          item={downloadItem.item}
+          type={downloadItem.type}
+          onClose={() => setDownloadItem(null)}
         />
       )}
     </PlayerContext.Provider>

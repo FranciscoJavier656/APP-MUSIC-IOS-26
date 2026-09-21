@@ -1,10 +1,12 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { usePlayer } from '../PlayerContext';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { QobuzAudio } from '../../lib/QobuzAudioPlugin';
 import { getImageSrc } from '../../lib/image';
+
+const QobuzAudioPlugin = QobuzAudio;
 
 const YagamiNative = registerPlugin('YagamiDownloadManager');
 
@@ -14,6 +16,67 @@ interface PlayerArtworkProps {
 }
 
 type LyricLine = { time: number; text: string; duration: number };
+
+interface LyricsContentProps {
+  parsedLyrics: LyricLine[] | null;
+  lyrics: string;
+  onLyricSeek: (time: number) => void;
+}
+
+const LyricsContent = React.memo(
+  React.forwardRef<HTMLDivElement, LyricsContentProps>(({ parsedLyrics, lyrics, onLyricSeek }, ref) => {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center px-4" ref={ref}>
+        {parsedLyrics ? (
+          parsedLyrics.map((line, idx) => (
+            <p 
+              key={idx} 
+              onClick={(e) => {
+                e.stopPropagation();
+                onLyricSeek(line.time);
+              }}
+              className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity]"
+              style={{ 
+                opacity: 0.3, 
+                transform: 'scale(0.95)', 
+                background: 'none',
+                WebkitBackgroundClip: 'initial',
+                WebkitTextFillColor: 'initial',
+                backgroundClip: 'initial',
+                color: 'rgba(255,255,255,0.7)'
+              }}
+            >
+              {line.text.split('^').map((part, i) => (
+                <div key={i} className={i > 0 ? "text-[0.75em] font-medium opacity-75 mt-0.5 text-center" : "text-center"}>
+                  {part.split(' ').map((word, w) => (
+                    <span key={w} className="word inline-block mr-[0.25em]">{word}</span>
+                  ))}
+                </div>
+              ))}
+            </p>
+          ))
+        ) : (
+          <div className="text-white/80 text-xl leading-relaxed font-semibold whitespace-pre-wrap flex-1 flex flex-col justify-center">
+            {lyrics.split('\n').map((line, i) => (
+              <div key={i}>
+                {line.split('^').map((part, j) => (
+                  <span key={j} className={j > 0 ? "block text-[0.8em] font-medium opacity-75 mt-1" : "block"}>{part}</span>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }),
+  (prevProps, nextProps) => {
+    return (
+      prevProps.parsedLyrics === nextProps.parsedLyrics &&
+      prevProps.lyrics === nextProps.lyrics &&
+      prevProps.onLyricSeek === nextProps.onLyricSeek
+    );
+  }
+);
 
 export default function PlayerArtwork({ dominantColor, setDominantColor }: PlayerArtworkProps) {
   const { currentTrack, isPlaying, audioRef, isExpanded, seekTo } = usePlayer();
@@ -29,8 +92,17 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   const lyricsBgRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dominantColorRef = useRef<string | null>(null);
+  const parsedRgbRef = useRef<{ r: number; g: number; b: number } | null>(null);
+  const isDarkModeRef = useRef<boolean>(false);
   const isPlayingRef = useRef(isPlaying);
   const lastFetchedTrackRef = useRef<string | null>(null);
+
+  // Cached DOM elements and layout geometry to eliminate queries in 60fps rAF loop
+  const bgGlowElRef = useRef<HTMLElement | null>(null);
+  const titleElRef = useRef<HTMLElement | null>(null);
+  const playBtnElRef = useRef<HTMLElement | null>(null);
+  const cachedParentHeightRef = useRef<number>(0);
+  const showLyricsRef = useRef(showLyrics);
   
   const isManualScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -40,6 +112,57 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
   const isManualSeekRef = useRef(false);
   const seekTargetTimeRef = useRef<number | null>(null);
   const requestRedrawRef = useRef<(() => void) | null>(null);
+
+  // Keep showLyricsRef in sync and request redraw when flipped to lyrics
+  useEffect(() => {
+    showLyricsRef.current = showLyrics;
+    if (showLyrics) {
+      requestRedrawRef.current?.();
+    }
+  }, [showLyrics]);
+
+  // Pre-cache dark mode to prevent window.matchMedia calls inside 60fps rAF loop
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const updateDarkMode = () => {
+      isDarkModeRef.current =
+        document.documentElement.classList.contains('dark') ||
+        (window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false);
+    };
+    updateDarkMode();
+
+    const mql = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    const handleChange = () => updateDarkMode();
+    if (mql?.addEventListener) {
+      mql.addEventListener('change', handleChange);
+    } else if (mql?.addListener) {
+      (mql as any).addListener(handleChange);
+    }
+
+    const observer = new MutationObserver(() => updateDarkMode());
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
+    return () => {
+      if (mql?.removeEventListener) {
+        mql.removeEventListener('change', handleChange);
+      } else if (mql?.removeListener) {
+        (mql as any).removeListener(handleChange);
+      }
+      observer.disconnect();
+    };
+  }, []);
+
+  const handleLyricSeek = useCallback((time: number) => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+    isManualScrollingRef.current = false;
+    isManualSeekRef.current = true;
+    seekTargetTimeRef.current = time;
+    seekTo(time);
+    requestRedrawRef.current?.();
+  }, [seekTo]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
       isManualScrollingRef.current = true;
@@ -66,8 +189,23 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
       }, 3000);
   };
 
+  // Pre-parse dominantColor RGB numbers once to avoid regex matching inside 60fps rAF loop
   useEffect(() => {
     dominantColorRef.current = dominantColor;
+    if (dominantColor) {
+      const match = dominantColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (match) {
+        parsedRgbRef.current = {
+          r: parseInt(match[1], 10),
+          g: parseInt(match[2], 10),
+          b: parseInt(match[3], 10),
+        };
+      } else {
+        parsedRgbRef.current = null;
+      }
+    } else {
+      parsedRgbRef.current = null;
+    }
   }, [dominantColor]);
 
   useEffect(() => {
@@ -81,6 +219,9 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
         const children = lyricsContainerRef.current.children;
         for (let i = 0; i < children.length; i++) {
           (children[i] as any)._cachedCenterY = undefined;
+        }
+        if (lyricsContainerRef.current.parentElement) {
+          cachedParentHeightRef.current = lyricsContainerRef.current.parentElement.clientHeight;
         }
       }
     };
@@ -292,6 +433,63 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
     return () => { if (listener) listener.remove(); };
   }, []);
 
+  // Feature F11: On-demand FFT toggling based on visualizer mount, expansion, and foreground visibility
+  useEffect(() => {
+    let isMounted = true;
+    let lastEnabled: boolean | null = null;
+
+    const setFft = (shouldEnable: boolean) => {
+      if (!isMounted && shouldEnable) return;
+      if (lastEnabled === shouldEnable) return;
+      lastEnabled = shouldEnable;
+      if (typeof QobuzAudioPlugin?.setFftEnabled === 'function') {
+        QobuzAudioPlugin.setFftEnabled({ enabled: shouldEnable }).catch(() => {});
+      }
+    };
+
+    const evaluateFftState = () => {
+      if (!isMounted) return;
+      const isVisible = typeof document !== 'undefined' ? document.visibilityState === 'visible' : true;
+      const isAppActive = typeof window !== 'undefined' && typeof (window as any).isAppActive !== 'undefined'
+        ? Boolean((window as any).isAppActive)
+        : true;
+      const shouldEnable = Boolean(isExpanded && isVisible && isAppActive);
+      setFft(shouldEnable);
+    };
+
+    evaluateFftState();
+
+    const handleVisibilityChange = () => {
+      evaluateFftState();
+    };
+
+    const handleAppStateChange = (e: any) => {
+      const active = e?.detail?.isActive ?? true;
+      if (typeof window !== 'undefined') {
+        (window as any).isAppActive = active;
+      }
+      evaluateFftState();
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('appStateChange', handleAppStateChange);
+    }
+
+    return () => {
+      isMounted = false;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('appStateChange', handleAppStateChange);
+      }
+      setFft(false);
+    };
+  }, [isExpanded]);
+
   // Animation Loop (Lyrics & Canvas)
   useEffect(() => {
     let animationId: number;
@@ -305,11 +503,24 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
     let lastUpdateTimestamp = performance.now();
 
     const startDrawing = () => {
+      // Feature F6: Cache DOM lookups outside 60fps rAF loop and set static styles once
+      if (!titleElRef.current) {
+        titleElRef.current = document.getElementById('player-title');
+        if (titleElRef.current) titleElRef.current.style.textShadow = 'none';
+      }
+      if (!playBtnElRef.current) {
+        playBtnElRef.current = document.getElementById('player-play-button');
+        if (playBtnElRef.current) playBtnElRef.current.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.3)';
+      }
+      if (!bgGlowElRef.current) {
+        bgGlowElRef.current = document.getElementById('player-bg-glow');
+      }
+
       const draw = () => {
         if (!isActive) return;
         
-        // Sync lyrics
-        if (audioRef.current && parsedLyricsRef.current && lyricsContainerRef.current) {
+        // Sync lyrics (Feature F6: Gated by showLyricsRef to completely skip 3D calculations and word gradient styling when user views artwork)
+        if (showLyricsRef.current && audioRef.current && parsedLyricsRef.current && lyricsContainerRef.current) {
           const isManualSeek = isManualSeekRef.current || (audioRef.current as any)?.isManualSeek;
           if (isManualSeek) {
              isManualSeekRef.current = false;
@@ -406,11 +617,13 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               }
           }
 
-          const containerCenter = parentContainer.clientHeight / 2;
+          // Feature F6: Cache parent height to avoid querying parentContainer.clientHeight multiple times per frame
+          const parentHeight = cachedParentHeightRef.current || (cachedParentHeightRef.current = parentContainer.clientHeight);
+          const containerCenter = parentHeight / 2;
           const globalTranslateY = containerCenter - currentScrollYRef.current;
 
           // 3. Update all children with 3D Wheel effect
-          const visibleThreshold = parentContainer.clientHeight * 0.8;
+          const visibleThreshold = parentHeight * 0.8;
 
           for (let i = 0; i < children.length; i++) {
               const child = children[i] as HTMLElement;
@@ -545,18 +758,17 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           const barWidth = (canvas.width / bufferLength);
           let x = 0;
           
-          const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          // Feature F6: Read pre-cached dark mode instead of window.matchMedia
+          const isDarkMode = isDarkModeRef.current;
           let r = isDarkMode ? 255 : 0;
           let g = isDarkMode ? 255 : 0;
           let b = isDarkMode ? 255 : 0;
           
-          if (dominantColorRef.current) {
-            const match = dominantColorRef.current.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-            if (match) {
-              r = parseInt(match[1]);
-              g = parseInt(match[2]);
-              b = parseInt(match[3]);
-            }
+          // Feature F6: Read pre-parsed RGB numbers instead of regex matching
+          if (parsedRgbRef.current) {
+            r = parsedRgbRef.current.r;
+            g = parsedRgbRef.current.g;
+            b = parsedRgbRef.current.b;
           }
           const baseRgb = `${r}, ${g}, ${b}`;
           
@@ -616,12 +828,8 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               (window as any).midSmoothed = (window as any).midSmoothed * 0.93 + midImpact * 0.07; 
           }
           
-          const titleEl = document.getElementById('player-title');
-          const playBtnEl = document.getElementById('player-play-button');
-          const bgGlowEl = document.getElementById('player-bg-glow');
-          
-          if (titleEl) titleEl.style.textShadow = 'none';
-          if (playBtnEl) playBtnEl.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.3)';
+          // Feature F6: Read cached DOM element reference with zero document.getElementById calls inside rAF
+          const bgGlowEl = bgGlowElRef.current;
           
           if (bgGlowEl) {
              const baseOpacity = isDarkMode ? 0.45 : 0.35;
@@ -647,7 +855,9 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
            ((window as any).auraSize > 0.005)
         );
 
-        if ((isPlaying || isDecaying) && document.visibilityState === 'visible') {
+        // Feature F8: Yield rAF loop when app is inactive/minimized
+        const isAppActive = typeof (window as any).isAppActive !== 'undefined' ? (window as any).isAppActive : true;
+        if ((isPlaying || isDecaying) && document.visibilityState === 'visible' && isAppActive) {
            animationId = requestAnimationFrame(draw);
         } else {
            animationId = 0;
@@ -665,9 +875,10 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
          (audioRef.current as any).requestLyricsRedraw = requestRedrawRef.current;
       }
 
-      if (isPlaying && document.visibilityState === 'visible' && !animationId) {
+      const isAppActive = typeof (window as any).isAppActive !== 'undefined' ? (window as any).isAppActive : true;
+      if (isPlaying && document.visibilityState === 'visible' && isAppActive && !animationId) {
          draw();
-      } else if (!isPlaying || document.visibilityState !== 'visible') {
+      } else if (!isPlaying || document.visibilityState !== 'visible' || !isAppActive) {
          // Draw once to update to paused state
          draw();
       }
@@ -676,8 +887,25 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
     const handleVisibilityChange = () => {
        if (document.visibilityState === 'visible') {
            lastUpdateTimestamp = performance.now();
+           const isAppActive = typeof (window as any).isAppActive !== 'undefined' ? (window as any).isAppActive : true;
+           if (isPlaying && isExpanded && isAppActive) {
+               startDrawing();
+           }
+       }
+    };
+
+    // Feature F8: Pause visual animation loop on appStateChange to inactive, resume when active
+    const handleAppStateChange = (e: any) => {
+       const active = e.detail?.isActive ?? true;
+       if (active) {
+           lastUpdateTimestamp = performance.now();
            if (isPlaying && isExpanded) {
                startDrawing();
+           }
+       } else {
+           if (animationId) {
+               cancelAnimationFrame(animationId);
+               animationId = 0;
            }
        }
     };
@@ -688,11 +916,15 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
         for (let i = 0; i < children.length; i++) {
           (children[i] as any)._cachedCenterY = undefined;
         }
+        if (lyricsContainerRef.current.parentElement) {
+          cachedParentHeightRef.current = lyricsContainerRef.current.parentElement.clientHeight;
+        }
       }
     };
     
     window.addEventListener('resize', handleResize);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('appStateChange', handleAppStateChange);
 
     if (isExpanded) {
       startDrawing();
@@ -705,6 +937,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
       }
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('appStateChange', handleAppStateChange);
       clearTimeout(timeoutId);
       if (animationId) cancelAnimationFrame(animationId);
     };
@@ -753,11 +986,19 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               <div ref={lyricsBgRef} className="absolute inset-0 transition-opacity duration-75 mix-blend-screen opacity-70">
                 <div 
                   className="absolute w-full h-[120%] top-[-10%] left-[-20%] rounded-full opacity-100 animate-[spin_15s_linear_infinite]"
-                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 60%)` : 'none', filter: 'blur(40px) saturate(150%)' }}
+                  style={{ 
+                    background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 60%)` : 'none', 
+                    filter: 'blur(40px) saturate(150%)',
+                    animationPlayState: (isPlaying && showLyrics) ? 'running' : 'paused'
+                  }}
                 />
                 <div 
                   className="absolute w-[120%] h-full bottom-[-10%] right-[-20%] rounded-full opacity-90 animate-[spin_20s_linear_infinite_reverse]"
-                  style={{ background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 70%)` : 'none', filter: 'blur(50px) saturate(150%)' }}
+                  style={{ 
+                    background: dominantColor ? `radial-gradient(circle, ${dominantColor} 0%, transparent 70%)` : 'none', 
+                    filter: 'blur(50px) saturate(150%)',
+                    animationPlayState: (isPlaying && showLyrics) ? 'running' : 'paused'
+                  }}
                 />
               </div>
               {/* Glass Overlay for readability */}
@@ -777,55 +1018,12 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                     perspective: '1200px'
                   }}
                 >
-                  <div className="absolute inset-0 flex flex-col items-center px-4" ref={lyricsContainerRef}>
-                    {parsedLyrics ? (
-                      parsedLyrics.map((line, idx) => (
-                        <p 
-                          key={idx} 
-                          onClick={(e) => {
-                             e.stopPropagation();
-                             if (scrollTimeoutRef.current) {
-                                clearTimeout(scrollTimeoutRef.current);
-                                scrollTimeoutRef.current = null;
-                             }
-                             isManualScrollingRef.current = false;
-                             isManualSeekRef.current = true;
-                             seekTargetTimeRef.current = line.time;
-                             seekTo(line.time);
-                             requestRedrawRef.current?.();
-                          }}
-                          className="cursor-pointer hover:opacity-100 text-white/60 text-[1.75rem] leading-[1.3] font-extrabold tracking-tight mb-8 origin-center flex flex-col items-center gap-1.5 will-change-[transform,opacity]"
-                          style={{ 
-                            opacity: 0.3, 
-                            transform: 'scale(0.95)', 
-                            background: 'none',
-                            WebkitBackgroundClip: 'initial',
-                            WebkitTextFillColor: 'initial',
-                            backgroundClip: 'initial',
-                            color: 'rgba(255,255,255,0.7)'
-                          }}
-                        >
-                          {line.text.split('^').map((part, i) => (
-                            <div key={i} className={i > 0 ? "text-[0.75em] font-medium opacity-75 mt-0.5 text-center" : "text-center"}>
-                              {part.split(' ').map((word, w) => (
-                                <span key={w} className="word inline-block mr-[0.25em]">{word}</span>
-                              ))}
-                            </div>
-                          ))}
-                        </p>
-                      ))
-                    ) : (
-                      <div className="text-white/80 text-xl leading-relaxed font-semibold whitespace-pre-wrap flex-1 flex flex-col justify-center">
-                        {lyrics.split('\n').map((line, i) => (
-                          <div key={i}>
-                            {line.split('^').map((part, j) => (
-                              <span key={j} className={j > 0 ? "block text-[0.8em] font-medium opacity-75 mt-1" : "block"}>{part}</span>
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <LyricsContent
+                    ref={lyricsContainerRef}
+                    parsedLyrics={parsedLyrics}
+                    lyrics={lyrics}
+                    onLyricSeek={handleLyricSeek}
+                  />
                 </div>
             </div>
           </div>

@@ -508,7 +508,9 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
         }
         (audioRef.current as any).nativeCurrentTime = info.currentTime + latency;
         (audioRef.current as any).nativeDuration = info.duration;
-        store.setState({ duration: info.duration });
+        if (Math.abs((store.getState().duration || 0) - info.duration) > 0.05) {
+          store.setState({ duration: info.duration });
+        }
       }
     }).then((l) => (timeUpdateListener = l));
 

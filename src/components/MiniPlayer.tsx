@@ -44,8 +44,17 @@ export default function MiniPlayer() {
   }, [togglePlay, setIsExpanded]);
 
   useEffect(() => {
+    // Feature F5: When expanded, MiniPlayer is unmounted/hidden; do not run rAF loop
+    if (isExpanded) {
+      return;
+    }
+
     let animationId: number;
     const updateProgress = () => {
+      if (isExpanded) {
+        animationId = 0;
+        return;
+      }
       if (audioRef.current && progressRef.current && audioRef.current.duration) {
         let currentTime = audioRef.current.currentTime;
         if (isNative && (audioRef.current as any).nativeCurrentTime !== undefined) {
@@ -54,31 +63,47 @@ export default function MiniPlayer() {
         const percent = (currentTime / audioRef.current.duration) * 100;
         progressRef.current.style.width = `${percent}%`;
       }
-      if (isPlaying && document.visibilityState === 'visible') {
+      const isAppActive = typeof (window as any).isAppActive !== 'undefined' ? (window as any).isAppActive : true;
+      if (!isExpanded && isPlaying && document.visibilityState === 'visible' && isAppActive) {
          animationId = requestAnimationFrame(updateProgress);
       } else {
          animationId = 0;
       }
     };
     
-    if (isPlaying && document.visibilityState === 'visible') {
+    const isAppActive = typeof (window as any).isAppActive !== 'undefined' ? (window as any).isAppActive : true;
+    if (!isExpanded && isPlaying && document.visibilityState === 'visible' && isAppActive) {
         updateProgress();
-    } else {
+    } else if (!isExpanded) {
         updateProgress(); // one-off update
     }
 
     const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible' && isPlaying && !animationId) {
+        const appActive = typeof (window as any).isAppActive !== 'undefined' ? (window as any).isAppActive : true;
+        if (!isExpanded && document.visibilityState === 'visible' && isPlaying && !animationId && appActive) {
             updateProgress();
         }
     };
+
+    const handleAppStateChange = (e: any) => {
+        const active = e.detail?.isActive ?? true;
+        if (active && !isExpanded && isPlaying && document.visibilityState === 'visible' && !animationId) {
+            updateProgress();
+        } else if (!active && animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = 0;
+        }
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('appStateChange', handleAppStateChange);
 
     return () => {
         if (animationId) cancelAnimationFrame(animationId);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('appStateChange', handleAppStateChange);
     };
-  }, [audioRef, isPlaying]);
+  }, [audioRef, isPlaying, isExpanded]);
 
   return (
     <>

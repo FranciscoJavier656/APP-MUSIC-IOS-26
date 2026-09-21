@@ -154,7 +154,7 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
     
     // ── Initialize EQ state ──
     context->eqEnabled = NO;
-    context->fftEnabled = YES;
+    context->fftEnabled = NO;
     context->activeCoeffBuffer = 0;
     context->sampleRate = 44100.0f; // Default, overridden in tapPrepare
     context->numChannels = 2;
@@ -450,6 +450,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     // ── FFT Analysis (throttled to ~30fps for visualization only) ──
     if (!context->fftEnabled) return;
     if (numberFrames < context->fftSize) return;
+    if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground) return;
     
     QobuzAudioPlugin *plugin = (__bridge QobuzAudioPlugin *)context->plugin;
     if (!plugin.isPlaying) return;
@@ -500,6 +501,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     plugin.lastFftUpdate = now;
     
     dispatch_async(dispatch_get_main_queue(), ^{
+        if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground) return;
         [plugin notifyListeners:@"onFftData" data:@{@"data": result}];
     });
 }
@@ -508,6 +510,27 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 
 - (void)load {
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleAudioSessionInterruption:) name:AVAudioSessionInterruptionNotification object:[AVAudioSession sharedInstance]];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleAppWillEnterForeground:) name:UIApplicationWillEnterForegroundNotification object:nil];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)handleAppWillEnterForeground:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self.player || !self.player.currentItem) return;
+        float currentTime = CMTimeGetSeconds(self.player.currentTime);
+        float duration = CMTimeGetSeconds(self.player.currentItem.duration);
+        if (isnan(currentTime)) currentTime = 0;
+        if (isnan(duration)) duration = 0;
+        NSTimeInterval timestamp = [[NSDate date] timeIntervalSince1970] * 1000.0;
+        [self notifyListeners:@"onTimeUpdate" data:@{
+            @"currentTime": @(currentTime),
+            @"duration": @(duration),
+            @"timestamp": @(timestamp)
+        }];
+    });
 }
 
 - (void)handleAudioSessionInterruption:(NSNotification *)notification {
@@ -519,7 +542,6 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
             [self.player pause];
             self.isPlaying = NO;
             [self updateNowPlayingState];
-            [self notifyListeners:@"onStateChange" data:@{@"isPlaying": @NO}];
         });
     } else if (type == AVAudioSessionInterruptionTypeEnded) {
         AVAudioSessionInterruptionOptions options = [userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue];
@@ -528,7 +550,6 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 [self.player play];
                 self.isPlaying = YES;
                 [self updateNowPlayingState];
-                [self notifyListeners:@"onStateChange" data:@{@"isPlaying": @YES}];
             });
         }
     }
@@ -679,9 +700,6 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 
 - (void)logMessage:(NSString *)msg {
     NSLog(@"[QOBUZ NATIVE] %@", msg);
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self notifyListeners:@"onDebugLog" data:@{@"message": msg}];
-    });
 }
 
 - (void)play:(CAPPluginCall *)call {
@@ -756,6 +774,9 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         }];
         
         weakSelf.timeObserver = [weakSelf.player addPeriodicTimeObserverForInterval:CMTimeMake(1, 4) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
+            if ([UIApplication sharedApplication].applicationState == UIApplicationStateBackground) {
+                return;
+            }
             float currentTime = CMTimeGetSeconds(time);
             float duration = CMTimeGetSeconds(weakSelf.player.currentItem.duration);
             if (isnan(duration)) duration = 0;

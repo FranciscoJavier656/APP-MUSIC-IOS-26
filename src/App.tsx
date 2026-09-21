@@ -65,6 +65,41 @@ function AppContent() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [showUI]);
+
+  // ─── Capacitor App lifecycle listener (F8: background/minimization gating) ───
+  useEffect(() => {
+    let listener: any = null;
+
+    const handleAppState = (isActive: boolean) => {
+      (window as any).isAppActive = isActive;
+      window.dispatchEvent(new CustomEvent('appStateChange', { detail: { isActive } }));
+    };
+
+    // Initialize global app active state based on document visibility
+    (window as any).isAppActive = typeof document !== 'undefined' ? document.visibilityState === 'visible' : true;
+
+    const handleVisibility = () => {
+      handleAppState(document.visibilityState === 'visible');
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    import('@capacitor/app').then(({ App: CapApp }) => {
+      CapApp.addListener('appStateChange', ({ isActive }) => {
+        handleAppState(isActive);
+      }).then((l) => {
+        listener = l;
+      }).catch((err) => {
+        console.warn('Capacitor App listener registration error:', err);
+      });
+    }).catch(() => {});
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (listener && typeof listener.remove === 'function') {
+        listener.remove();
+      }
+    };
+  }, []);
   
   
   const [activeTab, setActiveTab] = useState<'home' | 'search' | 'library' | 'downloads' | 'settings'>('home');
