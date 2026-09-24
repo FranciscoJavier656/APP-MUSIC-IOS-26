@@ -226,18 +226,9 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
       }
     };
     
-    // Invalidate immediately and after flip animation settles
+    // Invalidate immediately
     invalidateCache();
-    const t1 = setTimeout(invalidateCache, 150);
-    const t2 = setTimeout(invalidateCache, 500);
-    const t3 = setTimeout(invalidateCache, 1100);
-    
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-    };
-  }, [showLyrics, parsedLyrics]);
+  }, [parsedLyrics]);
 
   // Resolve Image SRC
   useEffect(() => {
@@ -516,12 +507,17 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
         bgGlowElRef.current = document.getElementById('player-bg-glow');
       }
 
+      let wasShowingLyrics = false;
+
       const draw = () => {
         if (!isActive) return;
         
-        // Sync lyrics (Feature F6: Gated by showLyricsRef to completely skip 3D calculations and word gradient styling when user views artwork)
-        if (showLyricsRef.current && audioRef.current && parsedLyricsRef.current && lyricsContainerRef.current) {
-          const isManualSeek = isManualSeekRef.current || (audioRef.current as any)?.isManualSeek;
+        let currentAudioTime = 0;
+        let isManualSeek = false;
+        
+        // Keep time in sync regardless of visibility to avoid jumps
+        if (audioRef.current) {
+          isManualSeek = isManualSeekRef.current || (audioRef.current as any)?.isManualSeek;
           if (isManualSeek) {
              isManualSeekRef.current = false;
              if (audioRef.current) (audioRef.current as any).isManualSeek = false;
@@ -529,7 +525,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
 
           const isNative = Capacitor.isNativePlatform();
           const rawNative = isNative ? (audioRef.current as any).nativeCurrentTime : undefined;
-          const currentAudioTime = rawNative !== undefined ? rawNative : audioRef.current.currentTime;
+          currentAudioTime = rawNative !== undefined ? rawNative : audioRef.current.currentTime;
           const now = performance.now();
           let delta = (now - lastUpdateTimestamp) / 1000;
           if (delta > 0.5) delta = 0.5;
@@ -537,7 +533,8 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           if (isManualSeek) {
               interpolatedTime = seekTargetTimeRef.current !== null ? seekTargetTimeRef.current : currentAudioTime;
               seekTargetTimeRef.current = null;
-              lastNativeTime = interpolatedTime;
+              // Prevent old snap! If rawNative is still old, update lastNativeTime to rawNative so it doesn't snap back!
+              lastNativeTime = rawNative !== undefined ? rawNative : audioRef.current.currentTime;
               lastUpdateTimestamp = now;
           } else if (rawNative !== undefined) {
               if (rawNative !== lastNativeTime) {
@@ -545,9 +542,7 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
                       interpolatedTime = rawNative;
                   } else {
                       interpolatedTime += delta;
-                      if (rawNative > interpolatedTime) {
-                          interpolatedTime = (interpolatedTime * 0.8) + (rawNative * 0.2);
-                      }
+                      interpolatedTime += (rawNative - interpolatedTime) * 0.2;
                   }
                   lastNativeTime = rawNative;
                   lastUpdateTimestamp = now;
@@ -561,7 +556,12 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               interpolatedTime = audioRef.current.currentTime;
               lastUpdateTimestamp = now;
           }
+        }
 
+        const isShowingLyrics = showLyricsRef.current;
+
+        // Sync lyrics (Feature F6: Gated by showLyricsRef to completely skip 3D calculations and word gradient styling when user views artwork)
+        if (isShowingLyrics && parsedLyricsRef.current && lyricsContainerRef.current) {
           const current = interpolatedTime;
           const lyricsArray = parsedLyricsRef.current;
           const LYRICS_OFFSET = 0.0;
@@ -602,13 +602,14 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
           }
           
           // 2. Apply LERP for scroll
-          if (isManualSeek) {
+          const justShown = !wasShowingLyrics;
+          if (isManualSeek || justShown) {
               isManualScrollingRef.current = false;
               if (scrollTimeoutRef.current) {
                   clearTimeout(scrollTimeoutRef.current);
                   scrollTimeoutRef.current = null;
               }
-              currentScrollYRef.current = targetY; // Hard snap immediately on manual seek
+              currentScrollYRef.current = targetY; // Hard snap immediately on manual seek or flip
           } else if (!isManualScrollingRef.current) {
               if (Math.abs(targetY - currentScrollYRef.current) > 350) {
                   currentScrollYRef.current = targetY; // Snap if distance is too large (e.g. flip)
@@ -742,6 +743,8 @@ export default function PlayerArtwork({ dominantColor, setDominantColor }: Playe
               }
           }
         }
+        
+        wasShowingLyrics = isShowingLyrics;
 
         // Draw Analyser
         if (ctx && canvas && (canvas as any).nativeFftData) {
