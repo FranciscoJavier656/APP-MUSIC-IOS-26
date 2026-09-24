@@ -471,6 +471,7 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
   let nativeEndListener: any;
   let appStateListener: any;
   if (Capacitor.isNativePlatform()) {
+    if (QobuzAudio.setFftEnabled) QobuzAudio.setFftEnabled({ enabled: true });
     import('@capacitor/app').then(({ App }) => {
       App.addListener('appStateChange', ({ isActive }) => {
         if (QobuzAudio.setFftEnabled) QobuzAudio.setFftEnabled({ enabled: isActive });

@@ -33,6 +33,7 @@ static const float EQ_Q_TABLE[EQ_NUM_BANDS] = {
 @interface QobuzAudioPlugin : CAPPlugin
 @property (nonatomic, strong) AVPlayer *player;
 @property (nonatomic, assign) BOOL isPlaying;
+@property (nonatomic, assign) BOOL globalFftEnabled;
 @property (nonatomic, assign) NSTimeInterval lastFftUpdate;
 @property (nonatomic, strong) id errorLogObservation;
 @property (nonatomic, strong) id timeObserver;
@@ -154,7 +155,8 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
     
     // ── Initialize EQ state ──
     context->eqEnabled = NO;
-    context->fftEnabled = NO;
+    QobuzAudioPlugin *plugin = (__bridge QobuzAudioPlugin *)context->plugin;
+    context->fftEnabled = plugin.globalFftEnabled;
     context->activeCoeffBuffer = 0;
     context->sampleRate = 44100.0f; // Default, overridden in tapPrepare
     context->numChannels = 2;
@@ -1052,6 +1054,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 
 - (void)setFftEnabled:(CAPPluginCall *)call {
     BOOL enabled = [call.options[@"enabled"] boolValue];
+    self.globalFftEnabled = enabled;
     
     @synchronized ([QobuzAudioPlugin class]) {
         if (g_tapContext) {
