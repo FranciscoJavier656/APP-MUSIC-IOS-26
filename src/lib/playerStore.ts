@@ -480,22 +480,29 @@ export function initPlayerEngine(audioRef: React.MutableRefObject<HTMLAudioEleme
 
     QobuzAudio.addListener('onTimeUpdate', (info) => {
       if (audioRef.current) {
-        const lastSeek = (audioRef.current as any).lastSeekTimestamp;
-        const seekTarget = (audioRef.current as any).lastSeekTarget;
-        const preSeekTime = (audioRef.current as any).preSeekTime;
-        if (lastSeek && (Date.now() - lastSeek < 800)) {
-           // If native sends a timestamp generated before or at seek initiation, it is definitively stale
-           if (info.timestamp && info.timestamp <= lastSeek) {
-              return;
-           }
-           // If native currentTime is still reporting near preSeekTime rather than the seek target
-           if (seekTarget !== undefined && preSeekTime !== undefined && Math.abs(seekTarget - preSeekTime) > 0.05) {
-              if (Math.abs(info.currentTime - preSeekTime) < Math.abs(info.currentTime - seekTarget)) {
-                 return; // Still playing pre-seek audio in AVPlayer buffer
+        const lastSeek = (audioRef.current as any)?.lastSeekTimestamp;
+        if (lastSeek) {
+           const elapsed = Date.now() - lastSeek;
+           
+           if (elapsed < 1500) {
+              // 1. Reject definitively stale timestamps from before or during the seek
+              if (info.timestamp && info.timestamp <= lastSeek) return;
+              
+              const seekTarget = (audioRef.current as any)?.lastSeekTarget;
+              
+              if (seekTarget !== undefined) {
+                 const diff = Math.abs(info.currentTime - seekTarget);
+                 // 2. Clear lock early if we hit the target accurately
+                 if (diff <= 1.5) {
+                    (audioRef.current as any).lastSeekTimestamp = null;
+                 } else {
+                    // 3. Strictly reject events that are not near the target
+                    // This prevents jumping to intermediate targets (T1) during rapid double-seeks
+                    return;
+                 }
               }
-           }
-           // Once we receive an update near the seek target, clear the seek lock
-           if (seekTarget !== undefined && Math.abs(info.currentTime - seekTarget) < 0.6) {
+           } else {
+              // Lock expired. Clear it to prevent permanent deadlock if native player dropped the seek.
               (audioRef.current as any).lastSeekTimestamp = null;
            }
         }
