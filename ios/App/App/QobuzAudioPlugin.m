@@ -1,3 +1,4 @@
+#import "QobuzAudioPlugin.h"
 #import <CoreMedia/CoreMedia.h>
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -29,17 +30,6 @@ static const float EQ_Q_TABLE[EQ_NUM_BANDS] = {
     0.707f, 1.0f, 1.0f, 1.0f, 1.0f,
     1.0f, 1.0f, 1.0f, 1.0f, 0.707f
 };
-
-@interface QobuzAudioPlugin : CAPPlugin
-@property (nonatomic, strong) AVPlayer *player;
-@property (nonatomic, assign) BOOL isPlaying;
-@property (nonatomic, assign) BOOL globalFftEnabled;
-@property (nonatomic, assign) NSTimeInterval lastFftUpdate;
-@property (nonatomic, strong) id errorLogObservation;
-@property (nonatomic, strong) id timeObserver;
-@property (nonatomic, strong) id endObservation;
-@property (nonatomic, copy) NSString *eqPresetName;
-@end
 
 // Context for the audio tap
 typedef struct {
@@ -74,6 +64,14 @@ typedef struct {
     float preampGainDB;                     // User setting in dB (-12.0 to +12.0)
     volatile float targetPreampLinear;      // Target linear multiplier = 10^(dB/20)
     float currentPreampLinear;             // Sample-smoothed linear gain in audio thread
+    // ── Active Crossover (2nd-Order Butterworth High-Pass Filter) State ──
+    volatile BOOL crossoverEnabled;                 // Atomic read from audio thread
+    float crossoverFrequency;                       // Cutoff frequency in Hz (80.0f to 250.0f)
+    double crossoverCoeffs[2][5];                   // Double-buffered [b0, b1, b2, a1, a2]
+    volatile int activeCrossoverBuffer;             // 0 or 1, read by audio thread
+    double crossoverDelayState[EQ_MAX_CHANNELS][2]; // [z1, z2] delay lines per channel
+    float crossoverWetDry;                          // Current interpolated wet/dry factor (0.0 to 1.0)
+    volatile float targetCrossoverWetDry;           // Target wet/dry factor (1.0 = enabled, 0.0 = disabled)
 } TapContext;
 
 // Static reference to TapContext for EQ control from main thread
@@ -101,11 +99,70 @@ static TapContext *g_tapContext = NULL;
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"getEQState" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setPreampGain" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQPreamp" returnType:CAPPluginReturnPromise]];
+    // Crossover Methods
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setCrossoverEnabled" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setCrossoverFrequency" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setCrossover" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"getCrossoverState" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"showAirPlayPicker" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setFftEnabled" returnType:CAPPluginReturnPromise]];
     return methods;
 }
 @end
+
+// ── 2nd-Order Butterworth High-Pass Filter Calculation (Audio EQ Cookbook) ──
+// Cutoff frequency range: 80 Hz to 250 Hz, Butterworth Q = 1/sqrt(2) = 0.7071067811865475
+// Direct Form II Transposed format: [b0/a0, b1/a0, b2/a0, a1/a0, a2/a0]
+static void calcHighPassFilter(double *coeffs, double cutoffFreq, double sampleRate) {
+    if (sampleRate < 1.0) sampleRate = 44100.0;
+    
+    // Clamp cutoff frequency within safe audible bounds: [80.0, 250.0] Hz
+    double freq = fmax(80.0, fmin(250.0, cutoffFreq));
+    if (freq >= sampleRate * 0.499) freq = sampleRate * 0.499;
+    
+    double w0 = 2.0 * M_PI * freq / sampleRate;
+    double cosW0 = cos(w0);
+    double sinW0 = sin(w0);
+    double Q = 0.70710678118654752440; // 1.0 / sqrt(2.0) Butterworth
+    double alpha = sinW0 / (2.0 * Q);
+    
+    double b0 = (1.0 + cosW0) * 0.5;
+    double b1 = -(1.0 + cosW0);
+    double b2 = (1.0 + cosW0) * 0.5;
+    double a0 = 1.0 + alpha;
+    double a1 = -2.0 * cosW0;
+    double a2 = 1.0 - alpha;
+    
+    coeffs[0] = b0 / a0;
+    coeffs[1] = b1 / a0;
+    coeffs[2] = b2 / a0;
+    coeffs[3] = a1 / a0;
+    coeffs[4] = a2 / a0;
+}
+
+// ── Alternative parameter signature matching DISPATCH.md specification ──
+// calcHighPassFilter(double sampleRate, double cutoffFreq, double *coeffs)
+static inline void calcHighPassFilterWithSampleRate(double sampleRate, double cutoffFreq, double *coeffs) {
+    calcHighPassFilter(coeffs, cutoffFreq, sampleRate);
+}
+
+// Recalculate crossover coefficients in the inactive buffer and atomically swap
+static void recalcCrossoverCoeffs(TapContext *context) {
+    if (!context) return;
+    int inactiveBuf = 1 - context->activeCrossoverBuffer;
+    float sr = context->sampleRate;
+    if (sr < 1.0f) sr = 44100.0f;
+    
+    float freq = context->crossoverFrequency;
+    if (freq < 80.0f) freq = 80.0f;
+    if (freq > 250.0f) freq = 250.0f;
+    
+    calcHighPassFilter(context->crossoverCoeffs[inactiveBuf], freq, sr);
+    
+    // Memory barrier ensures coefficients are committed to memory before pointer swap
+    __sync_synchronize();
+    context->activeCrossoverBuffer = inactiveBuf;
+}
 
 // MTAudioProcessingTap callbacks
 static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapStorageOut) {
@@ -160,8 +217,7 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
     
     // ── Initialize EQ state ──
     context->eqEnabled = NO;
-    QobuzAudioPlugin *plugin = (__bridge QobuzAudioPlugin *)context->plugin;
-    context->fftEnabled = plugin.globalFftEnabled;
+    context->fftEnabled = NO;
     context->activeCoeffBuffer = 0;
     context->sampleRate = 44100.0f; // Default, overridden in tapPrepare
     context->numChannels = 2;
@@ -186,6 +242,21 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
             context->eqGains[i] = [savedGains[i] floatValue];
         }
     }
+    
+    // ── Initialize Crossover (High-Pass Filter) state ──
+    BOOL savedCrossoverEnabled = [defaults boolForKey:@"eq_crossover_enabled"];
+    float savedCrossoverFreq = [defaults objectForKey:@"eq_crossover_freq"] ? [defaults floatForKey:@"eq_crossover_freq"] : 80.0f;
+    savedCrossoverFreq = fmaxf(80.0f, fminf(250.0f, savedCrossoverFreq));
+    
+    context->crossoverEnabled = savedCrossoverEnabled;
+    context->crossoverFrequency = savedCrossoverFreq;
+    context->activeCrossoverBuffer = 0;
+    context->targetCrossoverWetDry = savedCrossoverEnabled ? 1.0f : 0.0f;
+    context->crossoverWetDry = context->targetCrossoverWetDry;
+    memset(context->crossoverCoeffs, 0, sizeof(context->crossoverCoeffs));
+    memset(context->crossoverDelayState, 0, sizeof(context->crossoverDelayState));
+    calcHighPassFilter(context->crossoverCoeffs[0], savedCrossoverFreq, context->sampleRate);
+    calcHighPassFilter(context->crossoverCoeffs[1], savedCrossoverFreq, context->sampleRate);
 }
 
 // ── Biquad Coefficient Calculation (Robert Bristow-Johnson Audio EQ Cookbook) ──
@@ -315,9 +386,10 @@ static void tapPrepare(MTAudioProcessingTapRef tap, CMItemCount maxFrames, const
         context->numChannels = ((int)processingFormat->mChannelsPerFrame < EQ_MAX_CHANNELS) ? (int)processingFormat->mChannelsPerFrame : EQ_MAX_CHANNELS;
         context->isNonInterleaved = (processingFormat->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0;
         
-        // Recalculate EQ coefficients with actual sample rate safely
+        // Recalculate EQ and Crossover coefficients with actual sample rate safely
         @synchronized ([QobuzAudioPlugin class]) {
             recalcAllEQCoeffs(context);
+            recalcCrossoverCoeffs(context);
         }
     }
 }
@@ -348,83 +420,88 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     TapContext *context = (TapContext *)MTAudioProcessingTapGetStorage(tap);
     if (!context) return;
     
-    // ── EQ Biquad Processing (runs on EVERY audio callback, not throttled) ──
-    // This must process every sample for gapless audio filtering
-    if (context->eqEnabled) {
-        int activeBuf = context->activeCoeffBuffer;
+    // ── Audio DSP Chain (Stage 1: Crossover HPF -> Stage 2: 10-Band EQ -> Stage 3: Pre-amp & Soft Limiter) ──
+    BOOL eqOn = context->eqEnabled;
+    BOOL xoverOn = context->crossoverEnabled || (context->crossoverWetDry > 0.0001f) || (context->targetCrossoverWetDry > 0.0001f);
+    
+    if (eqOn || xoverOn) {
         int numCh = context->numChannels;
         
         if (context->isNonInterleaved) {
             // Non-interleaved: One buffer per channel, numberFrames samples per buffer
             int maxCh = ((int)bufferListInOut->mNumberBuffers < numCh) ? (int)bufferListInOut->mNumberBuffers : numCh;
-            for (int ch = 0; ch < maxCh; ch++) {
-                float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
-                if (!channelData) continue;
+            
+            // ── Stage 1: Active Crossover (2nd-Order Butterworth High-Pass Filter) ──
+            if (xoverOn) {
+                int activeXoverBuf = context->activeCrossoverBuffer;
+                double *coeffs = context->crossoverCoeffs[activeXoverBuf];
+                double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
+                double a1 = coeffs[3], a2 = coeffs[4];
                 
-                for (int band = 0; band < EQ_NUM_BANDS; band++) {
-                    double *coeffs = context->eqCoeffs[activeBuf][band];
-                    if (coeffs[0] == 1.0 && coeffs[1] == 0.0 && coeffs[2] == 0.0 &&
-                        coeffs[3] == 0.0 && coeffs[4] == 0.0) continue;
-                    
-                    double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
-                    double a1 = coeffs[3], a2 = coeffs[4];
-                    double z1 = context->eqDelayState[ch][band][0];
-                    double z2 = context->eqDelayState[ch][band][1];
-                    
-                    for (UInt32 n = 0; n < numberFrames; n++) {
-                        double x = channelData[n];
-                        double y = b0 * x + z1;
-                        z1 = b1 * x - a1 * y + z2;
-                        z2 = b2 * x - a2 * y;
-                        channelData[n] = (float)y;
+                float startWet = context->crossoverWetDry;
+                float targetWet = context->targetCrossoverWetDry;
+                float wetStep = (numberFrames > 0) ? ((targetWet - startWet) / (float)numberFrames) : 0.0f;
+                BOOL isRamping = fabsf(targetWet - startWet) > 0.0001f;
+                
+                if (isRamping || startWet >= 0.5f) {
+                    for (int ch = 0; ch < maxCh; ch++) {
+                        float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
+                        if (!channelData) continue;
+                        double z1 = context->crossoverDelayState[ch][0];
+                        double z2 = context->crossoverDelayState[ch][1];
+                        
+                        if (isRamping) {
+                            for (UInt32 n = 0; n < numberFrames; n++) {
+                                float wet = startWet + wetStep * (float)n;
+                                double x = channelData[n];
+                                double y = b0 * x + z1;
+                                z1 = b1 * x - a1 * y + z2;
+                                z2 = b2 * x - a2 * y;
+                                channelData[n] = (float)((1.0f - wet) * x + wet * y);
+                            }
+                        } else {
+                            for (UInt32 n = 0; n < numberFrames; n++) {
+                                double x = channelData[n];
+                                double y = b0 * x + z1;
+                                z1 = b1 * x - a1 * y + z2;
+                                z2 = b2 * x - a2 * y;
+                                channelData[n] = (float)y;
+                            }
+                        }
+                        
+                        // Denormal flushing
+                        if (fabs(z1) < 1.0e-15) z1 = 0.0;
+                        if (fabs(z2) < 1.0e-15) z2 = 0.0;
+                        context->crossoverDelayState[ch][0] = z1;
+                        context->crossoverDelayState[ch][1] = z2;
                     }
-                    
-                    if (fabs(z1) < 1.0e-15) z1 = 0.0;
-                    if (fabs(z2) < 1.0e-15) z2 = 0.0;
-                    context->eqDelayState[ch][band][0] = z1;
-                    context->eqDelayState[ch][band][1] = z2;
+                    context->crossoverWetDry = targetWet;
                 }
             }
             
-            // ── Pre-amp Gain Stage & Audiophile Soft Limiter (Non-Interleaved) ──
-            float startGain = context->currentPreampLinear;
-            float targetGain = context->targetPreampLinear;
-            float gainStep = (numberFrames > 0) ? ((targetGain - startGain) / (float)numberFrames) : 0.0f;
-            
-            for (UInt32 n = 0; n < numberFrames; n++) {
-                float g = startGain + gainStep * (float)n;
+            // ── Stage 2: 10-Band EQ & Pre-amp Limiter (Non-Interleaved) ──
+            if (eqOn) {
+                int activeBuf = context->activeCoeffBuffer;
                 for (int ch = 0; ch < maxCh; ch++) {
                     float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
                     if (!channelData) continue;
-                    float x = channelData[n] * g;
-                    channelData[n] = audiophileSoftLimit(x);
-                }
-            }
-            context->currentPreampLinear = targetGain;
-        } else {
-            // Interleaved: Single buffer, channels are adjacent (L, R, L, R...)
-            float *interleavedData = (float *)bufferListInOut->mBuffers[0].mData;
-            if (interleavedData) {
-                for (int band = 0; band < EQ_NUM_BANDS; band++) {
-                    double *coeffs = context->eqCoeffs[activeBuf][band];
-                    if (coeffs[0] == 1.0 && coeffs[1] == 0.0 && coeffs[2] == 0.0 &&
-                        coeffs[3] == 0.0 && coeffs[4] == 0.0) continue;
                     
-                    double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
-                    double a1 = coeffs[3], a2 = coeffs[4];
-                    
-                    // We must process frames, pulling the correct channel sample
-                    for (int ch = 0; ch < numCh; ch++) {
+                    for (int band = 0; band < EQ_NUM_BANDS; band++) {
+                        double *coeffs = context->eqCoeffs[activeBuf][band];
+                        if (coeffs[0] == 1.0 && coeffs[1] == 0.0 && coeffs[2] == 0.0 &&
+                            coeffs[3] == 0.0 && coeffs[4] == 0.0) continue;
+                        
+                        double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
+                        double a1 = coeffs[3], a2 = coeffs[4];
                         double z1 = context->eqDelayState[ch][band][0];
                         double z2 = context->eqDelayState[ch][band][1];
                         
                         for (UInt32 n = 0; n < numberFrames; n++) {
-                            int idx = n * numCh + ch;
-                            double x = interleavedData[idx];
+                            double x = channelData[n];
                             double y = b0 * x + z1;
                             z1 = b1 * x - a1 * y + z2;
                             z2 = b2 * x - a2 * y;
-                            interleavedData[idx] = (float)y;
+                            channelData[n] = (float)y;
                         }
                         
                         if (fabs(z1) < 1.0e-15) z1 = 0.0;
@@ -434,20 +511,119 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                     }
                 }
                 
-                // ── Pre-amp Gain Stage & Audiophile Soft Limiter (Interleaved) ──
+                // ── Pre-amp Gain Stage & Audiophile Soft Limiter (Non-Interleaved) ──
                 float startGain = context->currentPreampLinear;
                 float targetGain = context->targetPreampLinear;
                 float gainStep = (numberFrames > 0) ? ((targetGain - startGain) / (float)numberFrames) : 0.0f;
                 
                 for (UInt32 n = 0; n < numberFrames; n++) {
                     float g = startGain + gainStep * (float)n;
-                    for (int ch = 0; ch < numCh; ch++) {
-                        int idx = n * numCh + ch;
-                        float x = interleavedData[idx] * g;
-                        interleavedData[idx] = audiophileSoftLimit(x);
+                    for (int ch = 0; ch < maxCh; ch++) {
+                        float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
+                        if (!channelData) continue;
+                        float x = channelData[n] * g;
+                        channelData[n] = audiophileSoftLimit(x);
                     }
                 }
                 context->currentPreampLinear = targetGain;
+            }
+        } else {
+            // Interleaved: Single buffer, channels are adjacent (L, R, L, R...)
+            float *interleavedData = (float *)bufferListInOut->mBuffers[0].mData;
+            if (interleavedData) {
+                // ── Stage 1: Active Crossover (2nd-Order Butterworth High-Pass Filter) (Interleaved) ──
+                if (xoverOn) {
+                    int activeXoverBuf = context->activeCrossoverBuffer;
+                    double *coeffs = context->crossoverCoeffs[activeXoverBuf];
+                    double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
+                    double a1 = coeffs[3], a2 = coeffs[4];
+                    
+                    float startWet = context->crossoverWetDry;
+                    float targetWet = context->targetCrossoverWetDry;
+                    float wetStep = (numberFrames > 0) ? ((targetWet - startWet) / (float)numberFrames) : 0.0f;
+                    BOOL isRamping = fabsf(targetWet - startWet) > 0.0001f;
+                    
+                    if (isRamping || startWet >= 0.5f) {
+                        for (int ch = 0; ch < numCh; ch++) {
+                            double z1 = context->crossoverDelayState[ch][0];
+                            double z2 = context->crossoverDelayState[ch][1];
+                            
+                            if (isRamping) {
+                                for (UInt32 n = 0; n < numberFrames; n++) {
+                                    int idx = n * numCh + ch;
+                                    float wet = startWet + wetStep * (float)n;
+                                    double x = interleavedData[idx];
+                                    double y = b0 * x + z1;
+                                    z1 = b1 * x - a1 * y + z2;
+                                    z2 = b2 * x - a2 * y;
+                                    interleavedData[idx] = (float)((1.0f - wet) * x + wet * y);
+                                }
+                            } else {
+                                for (UInt32 n = 0; n < numberFrames; n++) {
+                                    int idx = n * numCh + ch;
+                                    double x = interleavedData[idx];
+                                    double y = b0 * x + z1;
+                                    z1 = b1 * x - a1 * y + z2;
+                                    z2 = b2 * x - a2 * y;
+                                    interleavedData[idx] = (float)y;
+                                }
+                            }
+                            
+                            if (fabs(z1) < 1.0e-15) z1 = 0.0;
+                            if (fabs(z2) < 1.0e-15) z2 = 0.0;
+                            context->crossoverDelayState[ch][0] = z1;
+                            context->crossoverDelayState[ch][1] = z2;
+                        }
+                        context->crossoverWetDry = targetWet;
+                    }
+                }
+                
+                // ── Stage 2: 10-Band EQ & Pre-amp Limiter (Interleaved) ──
+                if (eqOn) {
+                    int activeBuf = context->activeCoeffBuffer;
+                    for (int band = 0; band < EQ_NUM_BANDS; band++) {
+                        double *coeffs = context->eqCoeffs[activeBuf][band];
+                        if (coeffs[0] == 1.0 && coeffs[1] == 0.0 && coeffs[2] == 0.0 &&
+                            coeffs[3] == 0.0 && coeffs[4] == 0.0) continue;
+                        
+                        double b0 = coeffs[0], b1 = coeffs[1], b2 = coeffs[2];
+                        double a1 = coeffs[3], a2 = coeffs[4];
+                        
+                        for (int ch = 0; ch < numCh; ch++) {
+                            double z1 = context->eqDelayState[ch][band][0];
+                            double z2 = context->eqDelayState[ch][band][1];
+                            
+                            for (UInt32 n = 0; n < numberFrames; n++) {
+                                int idx = n * numCh + ch;
+                                double x = interleavedData[idx];
+                                double y = b0 * x + z1;
+                                z1 = b1 * x - a1 * y + z2;
+                                z2 = b2 * x - a2 * y;
+                                interleavedData[idx] = (float)y;
+                            }
+                            
+                            if (fabs(z1) < 1.0e-15) z1 = 0.0;
+                            if (fabs(z2) < 1.0e-15) z2 = 0.0;
+                            context->eqDelayState[ch][band][0] = z1;
+                            context->eqDelayState[ch][band][1] = z2;
+                        }
+                    }
+                    
+                    // ── Pre-amp Gain Stage & Audiophile Soft Limiter (Interleaved) ──
+                    float startGain = context->currentPreampLinear;
+                    float targetGain = context->targetPreampLinear;
+                    float gainStep = (numberFrames > 0) ? ((targetGain - startGain) / (float)numberFrames) : 0.0f;
+                    
+                    for (UInt32 n = 0; n < numberFrames; n++) {
+                        float g = startGain + gainStep * (float)n;
+                        for (int ch = 0; ch < numCh; ch++) {
+                            int idx = n * numCh + ch;
+                            float x = interleavedData[idx] * g;
+                            interleavedData[idx] = audiophileSoftLimit(x);
+                        }
+                    }
+                    context->currentPreampLinear = targetGain;
+                }
             }
         }
     }
@@ -514,6 +690,10 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
 @implementation QobuzAudioPlugin
 
 - (void)load {
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"eq_crossover_enabled": @NO,
+        @"eq_crossover_freq": @80.0f
+    }];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleAudioSessionInterruption:) name:AVAudioSessionInterruptionNotification object:[AVAudioSession sharedInstance]];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleAppWillEnterForeground:) name:UIApplicationWillEnterForegroundNotification object:nil];
 }
@@ -1046,19 +1226,28 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     BOOL enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"eq_enabled"];
     NSString *preset = self.eqPresetName ?: [[NSUserDefaults standardUserDefaults] stringForKey:@"eq_preset"] ?: @"flat";
     float preamp = 0.0f;
+    BOOL crossoverEnabled = NO;
+    float crossoverFrequency = 80.0f;
     
     @synchronized ([QobuzAudioPlugin class]) {
         if (g_tapContext) {
             enabled = g_tapContext->eqEnabled;
             preamp = g_tapContext->preampGainDB;
+            crossoverEnabled = g_tapContext->crossoverEnabled;
+            crossoverFrequency = g_tapContext->crossoverFrequency;
             for (int i = 0; i < EQ_NUM_BANDS; i++) {
                 [gains addObject:@(g_tapContext->eqGains[i])];
             }
         } else {
-            if ([[NSUserDefaults standardUserDefaults] objectForKey:@"eq_preamp"]) {
-                preamp = [[NSUserDefaults standardUserDefaults] floatForKey:@"eq_preamp"];
+            NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+            if ([defaults objectForKey:@"eq_preamp"]) {
+                preamp = [defaults floatForKey:@"eq_preamp"];
             }
-            NSArray *savedGains = [[NSUserDefaults standardUserDefaults] arrayForKey:@"eq_gains"];
+            crossoverEnabled = [defaults boolForKey:@"eq_crossover_enabled"];
+            if ([defaults objectForKey:@"eq_crossover_freq"]) {
+                crossoverFrequency = [defaults floatForKey:@"eq_crossover_freq"];
+            }
+            NSArray *savedGains = [defaults arrayForKey:@"eq_gains"];
             if (savedGains && savedGains.count == EQ_NUM_BANDS) {
                 [gains addObjectsFromArray:savedGains];
             } else {
@@ -1067,13 +1256,16 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 }
             }
         }
+        crossoverFrequency = fmaxf(80.0f, fminf(250.0f, crossoverFrequency));
     }
     
     [call resolve:@{
         @"enabled": @(enabled),
         @"gains": gains,
         @"preset": preset,
-        @"preamp": @(preamp)
+        @"preamp": @(preamp),
+        @"crossoverEnabled": @(crossoverEnabled),
+        @"crossoverFrequency": @(crossoverFrequency)
     }];
 }
 
@@ -1117,6 +1309,106 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
         }
         [call resolve];
     });
+}
+
+// ═══════════════════════════════════════════════════════════
+// ── ACTIVE CROSSOVER (HIGH-PASS FILTER) METHODS ──
+// ═══════════════════════════════════════════════════════════
+
+- (void)setCrossoverEnabled:(CAPPluginCall *)call {
+    NSNumber *enabledNum = call.options[@"enabled"];
+    if (!enabledNum || [enabledNum isKindOfClass:[NSNull class]] || ![enabledNum isKindOfClass:[NSNumber class]]) {
+        [call resolve:@{@"error": @"Missing or invalid 'enabled' parameter"}];
+        return;
+    }
+    BOOL enabled = [enabledNum boolValue];
+    
+    @synchronized ([QobuzAudioPlugin class]) {
+        if (g_tapContext) {
+            g_tapContext->crossoverEnabled = enabled;
+            g_tapContext->targetCrossoverWetDry = enabled ? 1.0f : 0.0f;
+            // Delay lines (crossoverDelayState) are retained to prevent clicks/pops
+        }
+        [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"eq_crossover_enabled"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    
+    [self logMessage:[NSString stringWithFormat:@"🎛️ Crossover %@", enabled ? @"ENABLED" : @"DISABLED"]];
+    [call resolve:@{@"enabled": @(enabled)}];
+}
+
+- (void)setCrossoverFrequency:(CAPPluginCall *)call {
+    NSNumber *freqNum = call.options[@"frequency"];
+    if (!freqNum || [freqNum isKindOfClass:[NSNull class]] || ![freqNum isKindOfClass:[NSNumber class]]) {
+        [call resolve:@{@"error": @"Missing or invalid 'frequency' parameter"}];
+        return;
+    }
+    
+    float freq = [freqNum floatValue];
+    // Clamp cutoff frequency strictly within satellite safety range [80.0, 250.0] Hz
+    freq = fmaxf(80.0f, fminf(250.0f, freq));
+    
+    @synchronized ([QobuzAudioPlugin class]) {
+        if (g_tapContext) {
+            g_tapContext->crossoverFrequency = freq;
+            recalcCrossoverCoeffs(g_tapContext);
+        }
+        [[NSUserDefaults standardUserDefaults] setFloat:freq forKey:@"eq_crossover_freq"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    
+    [self logMessage:[NSString stringWithFormat:@"🎛️ Crossover Frequency: %.1f Hz", freq]];
+    [call resolve:@{@"frequency": @(freq)}];
+}
+
+- (void)setCrossover:(CAPPluginCall *)call {
+    NSNumber *enabledNum = call.options[@"enabled"];
+    NSNumber *freqNum = call.options[@"frequency"];
+    
+    @synchronized ([QobuzAudioPlugin class]) {
+        if (enabledNum && ![enabledNum isKindOfClass:[NSNull class]] && [enabledNum isKindOfClass:[NSNumber class]]) {
+            BOOL enabled = [enabledNum boolValue];
+            if (g_tapContext) {
+                g_tapContext->crossoverEnabled = enabled;
+                g_tapContext->targetCrossoverWetDry = enabled ? 1.0f : 0.0f;
+            }
+            [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"eq_crossover_enabled"];
+        }
+        if (freqNum && ![freqNum isKindOfClass:[NSNull class]] && [freqNum isKindOfClass:[NSNumber class]]) {
+            float freq = fmaxf(80.0f, fminf(250.0f, [freqNum floatValue]));
+            if (g_tapContext) {
+                g_tapContext->crossoverFrequency = freq;
+                recalcCrossoverCoeffs(g_tapContext);
+            }
+            [[NSUserDefaults standardUserDefaults] setFloat:freq forKey:@"eq_crossover_freq"];
+        }
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    [call resolve];
+}
+
+- (void)getCrossoverState:(CAPPluginCall *)call {
+    BOOL enabled = NO;
+    float frequency = 80.0f;
+    
+    @synchronized ([QobuzAudioPlugin class]) {
+        if (g_tapContext) {
+            enabled = g_tapContext->crossoverEnabled;
+            frequency = g_tapContext->crossoverFrequency;
+        } else {
+            NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+            enabled = [defaults boolForKey:@"eq_crossover_enabled"];
+            if ([defaults objectForKey:@"eq_crossover_freq"]) {
+                frequency = [defaults floatForKey:@"eq_crossover_freq"];
+            }
+        }
+        frequency = fmaxf(80.0f, fminf(250.0f, frequency));
+    }
+    
+    [call resolve:@{
+        @"enabled": @(enabled),
+        @"frequency": @(frequency)
+    }];
 }
 
 @end

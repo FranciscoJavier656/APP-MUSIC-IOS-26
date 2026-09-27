@@ -12,9 +12,14 @@ export interface QobuzAudioPlugin {
   setEQEnabled(options: { enabled: boolean }): Promise<void>;
   setEQBand(options: { band: number, gain: number }): Promise<void>;
   setEQPreset(options: { preset: string }): Promise<{ gains: number[] }>;
-  getEQState(): Promise<{ enabled: boolean, gains: number[], preset: string, preamp?: number }>;
+  getEQState(): Promise<{ enabled: boolean, gains: number[], preset: string, preamp?: number, crossoverEnabled?: boolean, crossoverFrequency?: number }>;
   setPreampGain(options: { gain: number }): Promise<void>;
   setEQPreamp(options: { gain: number }): Promise<void>;
+  // Crossover (High-Pass Filter)
+  setCrossoverEnabled(options: { enabled: boolean }): Promise<void>;
+  setCrossoverFrequency(options: { frequency: number }): Promise<void>;
+  setCrossover(options: { enabled: boolean, frequency: number }): Promise<void>;
+  getCrossoverState(): Promise<{ enabled: boolean, frequency: number }>;
   setFftEnabled(options: { enabled: boolean }): Promise<void>;
   // Listeners
   addListener(eventName: 'onFftData', listenerFunc: (info: { data: number[] }) => void): any;
