@@ -70,7 +70,10 @@ typedef struct {
     float sampleRate;                       // Captured in tapPrepare
     int numChannels;                        // Captured in tapPrepare
     BOOL isNonInterleaved;                  // Captured in tapPrepare
-    float currentAutoGain;                  // For smooth lookahead/auto-gain limiter
+    // ── Pure Gain (Pre-amp) & Soft Limiter State ──
+    float preampGainDB;                     // User setting in dB (-12.0 to +12.0)
+    volatile float targetPreampLinear;      // Target linear multiplier = 10^(dB/20)
+    float currentPreampLinear;             // Sample-smoothed linear gain in audio thread
 } TapContext;
 
 // Static reference to TapContext for EQ control from main thread
@@ -96,6 +99,8 @@ static TapContext *g_tapContext = NULL;
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQBand" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQPreset" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"getEQState" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setPreampGain" returnType:CAPPluginReturnPromise]];
+    [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setEQPreamp" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"showAirPlayPicker" returnType:CAPPluginReturnPromise]];
     [methods addObject:[[CAPPluginMethod alloc] initWithName:@"setFftEnabled" returnType:CAPPluginReturnPromise]];
     return methods;
@@ -160,13 +165,18 @@ static void tapInit(MTAudioProcessingTapRef tap, void *clientInfo, void **tapSto
     context->activeCoeffBuffer = 0;
     context->sampleRate = 44100.0f; // Default, overridden in tapPrepare
     context->numChannels = 2;
-    context->currentAutoGain = 1.0f;
     memset(context->eqGains, 0, sizeof(context->eqGains));
     memset(context->eqCoeffs, 0, sizeof(context->eqCoeffs));
     memset(context->eqDelayState, 0, sizeof(context->eqDelayState));
     
     // Load persisted EQ state from NSUserDefaults
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    float savedPreamp = [defaults objectForKey:@"eq_preamp"] ? [defaults floatForKey:@"eq_preamp"] : 0.0f;
+    savedPreamp = fmaxf(-12.0f, fminf(12.0f, savedPreamp));
+    context->preampGainDB = savedPreamp;
+    context->targetPreampLinear = powf(10.0f, savedPreamp / 20.0f);
+    context->currentPreampLinear = context->targetPreampLinear;
+    
     NSArray *savedGains = [defaults arrayForKey:@"eq_gains"];
     BOOL savedEnabled = [defaults boolForKey:@"eq_enabled"];
     
@@ -313,6 +323,23 @@ static void tapPrepare(MTAudioProcessingTapRef tap, CMItemCount maxFrames, const
 }
 static void tapUnprepare(MTAudioProcessingTapRef tap) {}
 
+// Audiophile-grade piecewise hyperbolic tangent soft limiter
+// Perfectly linear and transparent below 0.95 (-0.45 dBFS)
+// C^2 continuous transition with asymptotic ceiling at 0.999 (-0.01 dBFS)
+static inline float audiophileSoftLimit(float x) {
+    const float threshold = 0.95f;
+    const float maxCeiling = 0.999f;
+    const float headroom = maxCeiling - threshold; // 0.049f
+    const float invHeadroom = 1.0f / headroom;    // ~20.40816f
+    
+    if (x > threshold) {
+        return threshold + headroom * tanhf((x - threshold) * invHeadroom);
+    } else if (x < -threshold) {
+        return -threshold - headroom * tanhf((-x - threshold) * invHeadroom);
+    }
+    return x;
+}
+
 static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MTAudioProcessingTapFlags flags, AudioBufferList *bufferListInOut, CMItemCount *numberFramesOut, MTAudioProcessingTapFlags *flagsOut) {
     
     OSStatus status = MTAudioProcessingTapGetSourceAudio(tap, numberFrames, bufferListInOut, flagsOut, NULL, numberFramesOut);
@@ -359,35 +386,21 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                 }
             }
             
-            // ── Auto-Gain & Soft Clipping (Lookahead limit approximation) ──
-            float maxMag = 0.0f;
-            for (int ch = 0; ch < maxCh; ch++) {
-                float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
-                if (!channelData) continue;
-                float chMax = 0.0f;
-                vDSP_maxmgv(channelData, 1, &chMax, numberFrames);
-                if (chMax > maxMag) maxMag = chMax;
-            }
+            // ── Pre-amp Gain Stage & Audiophile Soft Limiter (Non-Interleaved) ──
+            float startGain = context->currentPreampLinear;
+            float targetGain = context->targetPreampLinear;
+            float gainStep = (numberFrames > 0) ? ((targetGain - startGain) / (float)numberFrames) : 0.0f;
             
-            float targetGain = (maxMag > 0.95f) ? (0.95f / maxMag) : 1.0f;
-            float attack = 0.01f;
-            float release = 0.0001f;
             for (UInt32 n = 0; n < numberFrames; n++) {
-                if (targetGain < context->currentAutoGain) {
-                    context->currentAutoGain += attack * (targetGain - context->currentAutoGain);
-                } else {
-                    context->currentAutoGain += release * (targetGain - context->currentAutoGain);
-                }
-                float currentGain = context->currentAutoGain;
+                float g = startGain + gainStep * (float)n;
                 for (int ch = 0; ch < maxCh; ch++) {
                     float *channelData = (float *)bufferListInOut->mBuffers[ch].mData;
                     if (!channelData) continue;
-                    float x = channelData[n] * currentGain;
-                    if (x > 0.95f) x = 0.95f + 0.05f * tanhf((x - 0.95f) * 20.0f);
-                    else if (x < -0.95f) x = -0.95f + 0.05f * tanhf((x + 0.95f) * 20.0f);
-                    channelData[n] = x;
+                    float x = channelData[n] * g;
+                    channelData[n] = audiophileSoftLimit(x);
                 }
             }
+            context->currentPreampLinear = targetGain;
         } else {
             // Interleaved: Single buffer, channels are adjacent (L, R, L, R...)
             float *interleavedData = (float *)bufferListInOut->mBuffers[0].mData;
@@ -421,30 +434,20 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
                     }
                 }
                 
-                // ── Auto-Gain & Soft Clipping for Interleaved Data ──
-                UInt32 totalSamples = (UInt32)(numberFrames * numCh);
-                float maxMag = 0.0f;
-                vDSP_maxmgv(interleavedData, 1, &maxMag, totalSamples);
-                
-                float targetGain = (maxMag > 0.95f) ? (0.95f / maxMag) : 1.0f;
-                float attack = 0.01f;
-                float release = 0.0001f;
+                // ── Pre-amp Gain Stage & Audiophile Soft Limiter (Interleaved) ──
+                float startGain = context->currentPreampLinear;
+                float targetGain = context->targetPreampLinear;
+                float gainStep = (numberFrames > 0) ? ((targetGain - startGain) / (float)numberFrames) : 0.0f;
                 
                 for (UInt32 n = 0; n < numberFrames; n++) {
-                    if (targetGain < context->currentAutoGain) {
-                        context->currentAutoGain += attack * (targetGain - context->currentAutoGain);
-                    } else {
-                        context->currentAutoGain += release * (targetGain - context->currentAutoGain);
-                    }
-                    float currentGain = context->currentAutoGain;
+                    float g = startGain + gainStep * (float)n;
                     for (int ch = 0; ch < numCh; ch++) {
                         int idx = n * numCh + ch;
-                        float x = interleavedData[idx] * currentGain;
-                        if (x > 0.95f) x = 0.95f + 0.05f * tanhf((x - 0.95f) * 20.0f);
-                        else if (x < -0.95f) x = -0.95f + 0.05f * tanhf((x + 0.95f) * 20.0f);
-                        interleavedData[idx] = x;
+                        float x = interleavedData[idx] * g;
+                        interleavedData[idx] = audiophileSoftLimit(x);
                     }
                 }
+                context->currentPreampLinear = targetGain;
             }
         }
     }
@@ -957,6 +960,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
             savedGains[band] = @(gain);
             [[NSUserDefaults standardUserDefaults] setObject:savedGains forKey:@"eq_gains"];
             self.eqPresetName = @"custom";
+            [[NSUserDefaults standardUserDefaults] setObject:@"custom" forKey:@"eq_preset"];
             [[NSUserDefaults standardUserDefaults] synchronize];
         }
     }
@@ -1009,18 +1013,51 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     [call resolve:@{@"gains": gains}];
 }
 
+- (void)setPreampGain:(CAPPluginCall *)call {
+    NSNumber *gainNum = call.options[@"gain"];
+    if (!gainNum || [gainNum isKindOfClass:[NSNull class]] || ![gainNum isKindOfClass:[NSNumber class]]) {
+        [call resolve:@{@"error": @"Missing or invalid gain"}];
+        return;
+    }
+    
+    float gain = [gainNum floatValue];
+    // Clamp gain to ±12 dB
+    gain = fmaxf(-12.0f, fminf(12.0f, gain));
+    float linearGain = powf(10.0f, gain / 20.0f);
+    
+    @synchronized ([QobuzAudioPlugin class]) {
+        if (g_tapContext) {
+            g_tapContext->preampGainDB = gain;
+            g_tapContext->targetPreampLinear = linearGain;
+        }
+        [[NSUserDefaults standardUserDefaults] setFloat:gain forKey:@"eq_preamp"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    
+    [call resolve];
+}
+
+- (void)setEQPreamp:(CAPPluginCall *)call {
+    [self setPreampGain:call];
+}
+
 - (void)getEQState:(CAPPluginCall *)call {
     NSMutableArray *gains = [NSMutableArray arrayWithCapacity:EQ_NUM_BANDS];
     BOOL enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"eq_enabled"];
     NSString *preset = self.eqPresetName ?: [[NSUserDefaults standardUserDefaults] stringForKey:@"eq_preset"] ?: @"flat";
+    float preamp = 0.0f;
     
     @synchronized ([QobuzAudioPlugin class]) {
         if (g_tapContext) {
             enabled = g_tapContext->eqEnabled;
+            preamp = g_tapContext->preampGainDB;
             for (int i = 0; i < EQ_NUM_BANDS; i++) {
                 [gains addObject:@(g_tapContext->eqGains[i])];
             }
         } else {
+            if ([[NSUserDefaults standardUserDefaults] objectForKey:@"eq_preamp"]) {
+                preamp = [[NSUserDefaults standardUserDefaults] floatForKey:@"eq_preamp"];
+            }
             NSArray *savedGains = [[NSUserDefaults standardUserDefaults] arrayForKey:@"eq_gains"];
             if (savedGains && savedGains.count == EQ_NUM_BANDS) {
                 [gains addObjectsFromArray:savedGains];
@@ -1035,7 +1072,8 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
     [call resolve:@{
         @"enabled": @(enabled),
         @"gains": gains,
-        @"preset": preset
+        @"preset": preset,
+        @"preamp": @(preamp)
     }];
 }
 
@@ -1048,6 +1086,7 @@ static void tapProcess(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MT
             [gains addObject:@(g_tapContext->eqGains[i])];
         }
         [[NSUserDefaults standardUserDefaults] setObject:gains forKey:@"eq_gains"];
+        [[NSUserDefaults standardUserDefaults] setObject:@"custom" forKey:@"eq_preset"];
         [[NSUserDefaults standardUserDefaults] synchronize];
     }
 }

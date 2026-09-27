@@ -12,7 +12,9 @@ export interface QobuzAudioPlugin {
   setEQEnabled(options: { enabled: boolean }): Promise<void>;
   setEQBand(options: { band: number, gain: number }): Promise<void>;
   setEQPreset(options: { preset: string }): Promise<{ gains: number[] }>;
-  getEQState(): Promise<{ enabled: boolean, gains: number[], preset: string }>;
+  getEQState(): Promise<{ enabled: boolean, gains: number[], preset: string, preamp?: number }>;
+  setPreampGain(options: { gain: number }): Promise<void>;
+  setEQPreamp(options: { gain: number }): Promise<void>;
   setFftEnabled(options: { enabled: boolean }): Promise<void>;
   // Listeners
   addListener(eventName: 'onFftData', listenerFunc: (info: { data: number[] }) => void): any;

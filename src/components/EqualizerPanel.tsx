@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Power } from 'lucide-react';
+import { X, Power, Zap } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { QobuzAudio } from '../lib/QobuzAudioPlugin';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -47,14 +47,24 @@ export default function EqualizerPanel({ isVisible, onClose, dominantColor }: Eq
   const [eqEnabled, setEqEnabled] = useState(false);
   const [gains, setGains] = useState<number[]>(new Array(10).fill(0));
   const [activePreset, setActivePreset] = useState('flat');
+  const [pureGain, setPureGain] = useState<number>(0);
   const curveCanvasRef = useRef<HTMLCanvasElement>(null);
   const presetsScrollRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<any>(null);
 
+  // Pure Gain refs for throttling and interaction
+  const pureGainTrackRef = useRef<HTMLDivElement>(null);
+  const isDraggingPureGain = useRef(false);
+  const lastPureGainTap = useRef(0);
+  const previousPureGain = useRef(0);
+  const lastDispatchTimeRef = useRef<number>(0);
+  const pendingPreampRef = useRef<number | null>(null);
+  const throttleTimerRef = useRef<any>(null);
+
   // Accent color
   const accent = dominantColor || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'rgb(255,255,255)' : 'rgb(0,0,0)');
 
-  // ── Load EQ state on mount ──
+  // ── Load EQ state on mount / visibility ──
   useEffect(() => {
     if (!isVisible) return;
     if (isNative) {
@@ -62,9 +72,55 @@ export default function EqualizerPanel({ isVisible, onClose, dominantColor }: Eq
         setEqEnabled(state.enabled);
         if (state.gains?.length === 10) setGains(state.gains);
         setActivePreset(state.preset || 'flat');
+        if (typeof state.preamp === 'number' && !isDraggingPureGain.current) {
+          const val = Math.max(DB_MIN, Math.min(DB_MAX, state.preamp));
+          setPureGain(val);
+          try {
+            localStorage.setItem('eq_preamp', String(val));
+          } catch {}
+        }
+        try {
+          localStorage.setItem('eq_enabled', String(state.enabled));
+          if (state.gains) localStorage.setItem('eq_gains', JSON.stringify(state.gains));
+          if (state.preset) localStorage.setItem('eq_preset', state.preset);
+        } catch {}
       }).catch(() => {});
+    } else {
+      try {
+        const savedPreamp = localStorage.getItem('eq_preamp');
+        if (savedPreamp !== null) {
+          let val = parseFloat(savedPreamp);
+          if (!isNaN(val)) {
+            val = Math.max(DB_MIN, Math.min(DB_MAX, val));
+            setPureGain(val);
+          }
+        }
+        const savedEnabled = localStorage.getItem('eq_enabled');
+        if (savedEnabled !== null) {
+          setEqEnabled(savedEnabled === 'true');
+        }
+        const savedGains = localStorage.getItem('eq_gains');
+        if (savedGains) {
+          const parsed = JSON.parse(savedGains);
+          if (Array.isArray(parsed) && parsed.length === 10) {
+            setGains(parsed);
+          }
+        }
+        const savedPreset = localStorage.getItem('eq_preset');
+        if (savedPreset) {
+          setActivePreset(savedPreset);
+        }
+      } catch {}
     }
   }, [isVisible]);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (throttleTimerRef.current) clearTimeout(throttleTimerRef.current);
+    };
+  }, []);
 
   // ── Draw EQ response curve ──
   const drawCurve = useCallback(() => {
@@ -179,6 +235,146 @@ export default function EqualizerPanel({ isVisible, onClose, dominantColor }: Eq
     }, 16);
   }, []);
 
+  // ── Bridge trailing throttle dispatcher for Pre-amp / Pure Gain (~25ms interval / ~40Hz max rate) ──
+  const dispatchPreamp = useCallback((val: number) => {
+    if (isNative) {
+      QobuzAudio.setPreampGain({ gain: val }).catch(() => {
+        QobuzAudio.setEQPreamp({ gain: val }).catch(() => {});
+      });
+    }
+    try {
+      localStorage.setItem('eq_preamp', String(val));
+    } catch {}
+    lastDispatchTimeRef.current = Date.now();
+    pendingPreampRef.current = null;
+  }, []);
+
+  const sendPreampToNative = useCallback((gain: number, forceImmediate = false) => {
+    const rounded = Math.round(gain * 10) / 10;
+    pendingPreampRef.current = rounded;
+
+    if (forceImmediate) {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      dispatchPreamp(rounded);
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastDispatchTimeRef.current;
+    const THROTTLE_INTERVAL_MS = 25; // ~40Hz max rate
+
+    if (elapsed >= THROTTLE_INTERVAL_MS) {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      dispatchPreamp(rounded);
+    } else if (!throttleTimerRef.current) {
+      throttleTimerRef.current = setTimeout(() => {
+        throttleTimerRef.current = null;
+        if (pendingPreampRef.current !== null) {
+          dispatchPreamp(pendingPreampRef.current);
+        }
+      }, THROTTLE_INTERVAL_MS - elapsed);
+    }
+  }, [dispatchPreamp]);
+
+  // ── Pure Gain Touch & Interaction Handlers ──
+  const calcGainFromX = useCallback((clientX: number) => {
+    const track = pureGainTrackRef.current;
+    if (!track) return 0;
+    const rect = track.getBoundingClientRect();
+    if (rect.width === 0) return 0;
+    const ratio = (clientX - rect.left) / rect.width;
+    const clamped = Math.max(0, Math.min(1, ratio));
+    const rawGain = DB_MIN + clamped * (DB_MAX - DB_MIN);
+    // Snap to 0 if within +/- 0.25 dB for easy tactile zeroing
+    if (Math.abs(rawGain) < 0.25) return 0;
+    return Math.round(rawGain * 10) / 10;
+  }, []);
+
+  const handlePureGainTouchStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    const now = Date.now();
+    // Double tap within 300ms resets to 0
+    if (now - lastPureGainTap.current < 300) {
+      setPureGain(0);
+      previousPureGain.current = 0;
+      sendPreampToNative(0, true);
+      try {
+        if (isNative) Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+      } catch {}
+      return;
+    }
+    lastPureGainTap.current = now;
+
+    isDraggingPureGain.current = true;
+    const gain = calcGainFromX(e.touches[0].clientX);
+    previousPureGain.current = gain;
+    setPureGain(gain);
+    sendPreampToNative(gain, false);
+  }, [calcGainFromX, sendPreampToNative]);
+
+  const handlePureGainTouchMove = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (!isDraggingPureGain.current) return;
+    const gain = calcGainFromX(e.touches[0].clientX);
+
+    // Haptic tick when crossing 0dB
+    if ((previousPureGain.current < 0 && gain >= 0) || (previousPureGain.current > 0 && gain <= 0)) {
+      try {
+        if (isNative) Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+      } catch {}
+    }
+
+    previousPureGain.current = gain;
+    setPureGain(gain);
+    sendPreampToNative(gain, false);
+  }, [calcGainFromX, sendPreampToNative]);
+
+  const handlePureGainTouchEnd = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    isDraggingPureGain.current = false;
+    // Immediately flush on touch release
+    sendPreampToNative(previousPureGain.current, true);
+  }, [sendPreampToNative]);
+
+  const handlePureGainMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const gain = calcGainFromX(e.clientX);
+    setPureGain(gain);
+    previousPureGain.current = gain;
+    sendPreampToNative(gain, false);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const g = calcGainFromX(moveEvent.clientX);
+      setPureGain(g);
+      previousPureGain.current = g;
+      sendPreampToNative(g, false);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      sendPreampToNative(previousPureGain.current, true);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [calcGainFromX, sendPreampToNative]);
+
+  const handleResetPureGain = useCallback(() => {
+    setPureGain(0);
+    previousPureGain.current = 0;
+    sendPreampToNative(0, true);
+    try {
+      if (isNative) Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+    } catch {}
+  }, [sendPreampToNative]);
+
   // ── Toggle EQ ──
   const toggleEQ = useCallback(() => {
     const newVal = !eqEnabled;
@@ -187,17 +383,24 @@ export default function EqualizerPanel({ isVisible, onClose, dominantColor }: Eq
       QobuzAudio.setEQEnabled({ enabled: newVal }).catch(() => {});
     }
     try {
+      localStorage.setItem('eq_enabled', String(newVal));
+    } catch {}
+    try {
       if (isNative) Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {});
     } catch {}
   }, [eqEnabled]);
 
-  // ── Select Preset ──
+  // ── Select Preset (Does NOT clobber Pure Gain) ──
   const selectPreset = useCallback((preset: typeof PRESETS[0]) => {
     setActivePreset(preset.id);
     setGains([...preset.gains]);
     if (isNative) {
       QobuzAudio.setEQPreset({ preset: preset.id }).catch(() => {});
     }
+    try {
+      localStorage.setItem('eq_preset', preset.id);
+      localStorage.setItem('eq_gains', JSON.stringify(preset.gains));
+    } catch {}
     try {
       if (isNative) Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
     } catch {}
@@ -208,9 +411,15 @@ export default function EqualizerPanel({ isVisible, onClose, dominantColor }: Eq
     setGains(prev => {
       const updated = [...prev];
       updated[band] = Math.round(newGain * 10) / 10;
+      try {
+        localStorage.setItem('eq_gains', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
     setActivePreset('custom');
+    try {
+      localStorage.setItem('eq_preset', 'custom');
+    } catch {}
     sendGainToNative(band, newGain);
   }, [sendGainToNative]);
 
@@ -295,6 +504,86 @@ export default function EqualizerPanel({ isVisible, onClose, dominantColor }: Eq
                 className="w-full h-full"
                 style={{ display: 'block' }}
               />
+            </div>
+
+            {/* ── Pure Gain (Ganancia Pura • Pre-amp) ── */}
+            <div className="bg-black/[0.03] dark:bg-white/[0.05] border border-black/[0.05] dark:border-white/[0.08] rounded-2xl p-3 mb-4 backdrop-blur-md">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Zap className={`w-3.5 h-3.5 transition-colors duration-200 ${
+                    pureGain !== 0 && eqEnabled ? 'text-amber-400' : 'text-black/40 dark:text-white/40'
+                  }`} />
+                  <span className="text-xs font-bold tracking-tight text-black dark:text-white">
+                    Ganancia Pura
+                  </span>
+                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 text-black/50 dark:text-white/40 tracking-wider">
+                    Pre-amp
+                  </span>
+                  {pureGain > 0 && eqEnabled && (
+                    <span className="text-[9px] font-medium text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
+                      • Limiter
+                    </span>
+                  )}
+                </div>
+                
+                {/* Formatted dB display & Reset button */}
+                <button
+                  type="button"
+                  onClick={handleResetPureGain}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-95 transition-all"
+                  title="Toca para reiniciar a 0.0 dB"
+                >
+                  <span className={`text-xs font-bold tabular-nums font-mono transition-colors duration-200 ${
+                    pureGain !== 0 && eqEnabled ? 'text-black dark:text-white' : 'text-black/40 dark:text-white/40'
+                  }`}>
+                    {pureGain > 0 ? `+${pureGain.toFixed(1)}` : pureGain.toFixed(1)} dB
+                  </span>
+                </button>
+              </div>
+
+              {/* Bidirectional Slider Track */}
+              <div
+                ref={pureGainTrackRef}
+                className="relative h-6 flex items-center cursor-pointer select-none"
+                style={{ touchAction: 'none' }}
+                onTouchStart={handlePureGainTouchStart}
+                onTouchMove={handlePureGainTouchMove}
+                onTouchEnd={handlePureGainTouchEnd}
+                onMouseDown={handlePureGainMouseDown}
+              >
+                {/* Rail */}
+                <div className="relative w-full h-2 rounded-full overflow-hidden bg-black/10 dark:bg-white/10">
+                  {/* Zero Center Divider Notch */}
+                  <div className="absolute left-1/2 top-0 bottom-0 w-[1.5px] -translate-x-1/2 bg-black/25 dark:bg-white/30 z-10" />
+
+                  {/* Fill from Center (Bidirectional) */}
+                  <div
+                    className="absolute top-0 bottom-0 rounded-full transition-all duration-75"
+                    style={{
+                      left: pureGain >= 0 ? '50%' : `${((pureGain - DB_MIN) / (DB_MAX - DB_MIN)) * 100}%`,
+                      width: `${(Math.abs(pureGain) / (DB_MAX - DB_MIN)) * 100}%`,
+                      backgroundColor: eqEnabled ? (pureGain !== 0 ? accent : 'transparent') : 'transparent',
+                      opacity: eqEnabled ? 0.85 : 0.3
+                    }}
+                  />
+                </div>
+
+                {/* Draggable Thumb */}
+                <div
+                  className="absolute top-1/2 w-4 h-4 rounded-full shadow-md -translate-y-1/2 -translate-x-1/2 transition-transform duration-75 pointer-events-none"
+                  style={{
+                    left: `${((pureGain - DB_MIN) / (DB_MAX - DB_MIN)) * 100}%`,
+                    backgroundColor: eqEnabled ? accent : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.25)'),
+                  }}
+                />
+              </div>
+
+              {/* Scale Labels */}
+              <div className="flex justify-between text-[9px] font-mono text-black/30 dark:text-white/25 mt-1 px-1">
+                <span>-12 dB</span>
+                <span className="text-black/50 dark:text-white/45 font-bold">0 dB</span>
+                <span>+12 dB</span>
+              </div>
             </div>
 
             {/* Vertical Sliders */}
